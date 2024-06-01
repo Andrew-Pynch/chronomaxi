@@ -5,7 +5,6 @@ use tokio_postgres::{types::ToSql, Client, NoTls};
 use uuid::Uuid;
 use whoami;
 
-#[derive(Debug, Clone)]
 pub struct DbConnection {
     client: Client,
 }

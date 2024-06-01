@@ -4,7 +4,6 @@ pub mod app;
 pub mod config;
 pub mod db;
 pub mod log;
-// pub mod log_web_server;
 pub mod logger_v3;
 pub mod program_tracking;
 pub mod tmux;
