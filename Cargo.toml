@@ -21,3 +21,10 @@ reqwest = { version = "0.11" }
 url = "2.2"
 webbrowser = "1.0.1"
 whoami = "1.5.1"
+egui = "0.27.0"
+eframe = { version = "0.27.0", default-features = false, features = [
+    "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
+    "default_fonts", # Embed the default egui fonts.
+    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+    "persistence",   # Enable restoring app state when restarting the app.
+] }
