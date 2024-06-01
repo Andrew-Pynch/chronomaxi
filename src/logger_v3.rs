@@ -2,12 +2,17 @@ use crate::{config::Configuration, db::DbConnection, log::Log};
 use chrono::{DateTime, Utc};
 use device_query::{DeviceQuery, DeviceState};
 use std::{fmt, process::Command, sync::Arc};
+use tokio::sync::Mutex;
 
+#[derive(Debug, Clone)]
 pub struct LoggerV3 {
+    pub is_running: bool,
+
     pub config: Configuration,
     pub db: DbConnection,
-    pub device_state: device_query::DeviceState,
+    pub device_state: Arc<Mutex<DeviceState>>,
     pub logs: Vec<Log>,
+
     pub last_log_created_at_utc: chrono::DateTime<chrono::Utc>,
     pub idle_threshold_ms: u64,
     pub idle_timer: u64,
@@ -20,9 +25,10 @@ pub struct LoggerV3 {
 impl LoggerV3 {
     pub async fn new() -> Result<LoggerV3, Box<dyn std::error::Error>> {
         Ok(LoggerV3 {
+            is_running: false,
             config: Configuration::from_env().await?,
             db: DbConnection::new().await?,
-            device_state: device_query::DeviceState::new(),
+            device_state: Arc::new(Mutex::new(DeviceState::new())),
             logs: Vec::new(),
             // create new utc of last log created at
             last_log_created_at_utc: chrono::Utc::now(),
@@ -36,7 +42,8 @@ impl LoggerV3 {
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         println!("Starting chronomaxi logging service");
-        loop {
+
+        while self.is_running {
             let log = self.capture_log().await?;
 
             if !self.is_idle() {
@@ -50,6 +57,36 @@ impl LoggerV3 {
                     self.db.bulk_insert_logs(&self.logs).await?;
                     self.logs.clear();
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn start(&mut self) {
+        if !self.is_running {
+            self.is_running = true;
+            let (stop_sender, stop_receiver) = oneshot::channel();
+            self.stop_signal = Some(stop_sender);
+
+            let mut logger = self.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    tokio::select! {
+                        _ = logger.run() => {}
+                        _ = stop_receiver => {}
+                    }
+                });
+            });
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if self.is_running {
+            self.is_running = false;
+            if let Some(stop_sender) = self.stop_signal.take() {
+                let _ = stop_sender.send(());
             }
         }
     }
@@ -100,7 +137,7 @@ impl LoggerV3 {
         let current_browser_title =
             self.get_browser_title(current_program_name.clone(), current_window_id.clone());
         let (mouse_x, mouse_y) = self.get_mouse_position();
-        let keys_pressed_count = self.get_keys_pressed_count();
+        let keys_pressed_count = self.get_keys_pressed_count().await;
 
         let log = Log {
             user_id: self.config.user_id.clone(),
@@ -224,8 +261,9 @@ impl LoggerV3 {
         }
     }
 
-    pub fn get_keys_pressed_count(&mut self) -> Option<usize> {
-        let keys_pressed_count = self.device_state.get_keys();
+    pub async fn get_keys_pressed_count(&mut self) -> Option<usize> {
+        let device_state = self.device_state.lock().await;
+        let keys_pressed_count = device_state.get_keys();
 
         if keys_pressed_count.is_empty() {
             return None;

@@ -19,7 +19,7 @@ impl LogMethod {
     }
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Configuration {
     pub log_methods: Vec<LogMethod>,
     pub api_key: String,
