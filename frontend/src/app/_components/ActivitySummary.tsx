@@ -5,7 +5,14 @@ import { GetActivityData } from "../home/actions";
 type Props = {
     data: GetActivityData;
 };
+
 const ActivitySummary = ({ data }: Props) => {
+    const formatDuration = (totalHours: number) => {
+        const hours = Math.floor(totalHours);
+        const minutes = Math.round((totalHours - hours) * 60);
+        return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+    };
+
     return (
         <div className="mb-8 w-1/2">
             <h2 className="text-2xl font-bold mb-4">Activity Summary</h2>
@@ -44,7 +51,7 @@ const ActivitySummary = ({ data }: Props) => {
                                         {entry.date}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.totalHours.toFixed(2)}
+                                        {formatDuration(entry.totalHours)}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {entry.keystrokes}

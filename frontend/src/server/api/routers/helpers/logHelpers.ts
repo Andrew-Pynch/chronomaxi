@@ -141,7 +141,7 @@ export const LogHelpers = {
 
         const acivityPerProgram = logsToday.reduce(
             (acc, log) => {
-                if (!log.programProcessName || !acc[log.programProcessName]) {
+                if (!log.programProcessName) {
                     return acc;
                 }
 
@@ -152,13 +152,18 @@ export const LogHelpers = {
                     .toString()
                     .padStart(2, "0")}`;
 
-                acc[log.programProcessName] = acc[log.programProcessName] || {
-                    duration: 0,
-                    formattedDuration: "0.00",
-                };
-                acc[log.programProcessName].duration += duration;
-                acc[log.programProcessName].formattedDuration =
-                    formattedDuration;
+                if (!acc[log.programProcessName]) {
+                    acc[log.programProcessName] = {
+                        duration: 0,
+                        formattedDuration: "0.00",
+                    };
+                }
+
+                const programData = acc[log.programProcessName];
+                if (programData) {
+                    programData.duration += duration;
+                    programData.formattedDuration = formattedDuration;
+                }
 
                 return acc;
             },

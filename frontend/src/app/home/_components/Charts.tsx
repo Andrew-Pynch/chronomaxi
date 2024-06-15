@@ -97,9 +97,9 @@ const Charts = ({ data }: Props) => {
                 <PieChart>
                     <Pie
                         data={Object.entries(data.acivityPerProgramToday).map(
-                            ([program, { formattedDuration }]) => ({
+                            ([program, { duration }]) => ({
                                 program,
-                                duration: formattedDuration,
+                                duration,
                             }),
                         )}
                         dataKey="duration"
@@ -108,10 +108,10 @@ const Charts = ({ data }: Props) => {
                         cy="50%"
                         outerRadius={100}
                         fill="#8884d8"
-                        label
+                        label={(entry) => entry.program}
                     >
                         {Object.entries(data.acivityPerProgramToday).map(
-                            ([program, duration], index) => (
+                            ([program, { duration }], index) => (
                                 <Cell
                                     key={`cell-${index}`}
                                     fill={COLORS[index % COLORS.length]}
@@ -119,7 +119,12 @@ const Charts = ({ data }: Props) => {
                             ),
                         )}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip
+                        formatter={(value: number) => [
+                            `${value.toFixed(2)} hours`,
+                            "Duration",
+                        ]}
+                    />
                     <Legend />
                 </PieChart>
             </ResponsiveContainer>

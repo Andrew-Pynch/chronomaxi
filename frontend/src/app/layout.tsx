@@ -7,7 +7,6 @@ import "react-toastify/dist/ReactToastify.css";
 import { useEffect } from "react"; // Import the useEffect hook
 import { useTimerStore } from "~/store/timerStore"; // Import the useTimerStore hook
 import { ThemeProvider } from "next-themes";
-import { SessionProvider } from "next-auth/react";
 import { usePathname } from "next/navigation";
 
 const inter = Inter({
@@ -55,14 +54,12 @@ export default function RootLayout({
     return (
         <html lang="en">
             <body className={`font-sans ${inter.variable}`}>
-                <SessionProvider>
-                    <ThemeProvider>
-                        <ToastContainer />
-                        <TRPCReactProvider>
-                            <div className="z-0">{children}</div>
-                        </TRPCReactProvider>
-                    </ThemeProvider>
-                </SessionProvider>
+                <ThemeProvider>
+                    <ToastContainer />
+                    <TRPCReactProvider>
+                        <div className="z-0">{children}</div>
+                    </TRPCReactProvider>
+                </ThemeProvider>
             </body>
         </html>
     );
