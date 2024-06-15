@@ -97,7 +97,10 @@ const Charts = ({ data }: Props) => {
                 <PieChart>
                     <Pie
                         data={Object.entries(data.acivityPerProgramToday).map(
-                            ([program, duration]) => ({ program, duration }),
+                            ([program, { formattedDuration }]) => ({
+                                program,
+                                duration: formattedDuration,
+                            }),
                         )}
                         dataKey="duration"
                         nameKey="program"

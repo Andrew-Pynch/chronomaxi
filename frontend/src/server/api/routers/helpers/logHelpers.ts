@@ -141,12 +141,31 @@ export const LogHelpers = {
 
         const acivityPerProgram = logsToday.reduce(
             (acc, log) => {
-                acc[log.programProcessName] = acc[log.programName] || 0;
-                acc[log.programProcessName] +=
-                    (log.durationMs || 0) / 1000 / 60 / 60;
+                if (!log.programProcessName || !acc[log.programProcessName]) {
+                    return acc;
+                }
+
+                const duration = (log.durationMs || 0) / 1000 / 60 / 60;
+                const hours = Math.floor(duration);
+                const minutes = Math.round((duration - hours) * 60);
+                const formattedDuration = `${hours}.${minutes
+                    .toString()
+                    .padStart(2, "0")}`;
+
+                acc[log.programProcessName] = acc[log.programProcessName] || {
+                    duration: 0,
+                    formattedDuration: "0.00",
+                };
+                acc[log.programProcessName].duration += duration;
+                acc[log.programProcessName].formattedDuration =
+                    formattedDuration;
+
                 return acc;
             },
-            {} as Record<string, number>,
+            {} as Record<
+                string,
+                { duration: number; formattedDuration: string }
+            >,
         );
 
         return acivityPerProgram;

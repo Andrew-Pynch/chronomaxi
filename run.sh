@@ -8,6 +8,7 @@ command_exists() {
 # Function to handle the Ctrl+C signal
 shutdown() {
     echo "Shutting down the tracker and the website..."
+    pkill -f "cargo watch"
     pkill -f "cargo run"
     pkill -f "bun run local"
     pkill -f "npm run local"
@@ -20,10 +21,16 @@ trap shutdown SIGINT
 # Change to the tracker directory
 cd tracker
 
-# Run the tracker using cargo
-echo "Starting the tracker..."
-cargo run &
-TRACKER_PID=$!
+# Check if the -dev flag is passed
+if [ "$1" = "-dev" ]; then
+    echo "Starting the tracker in development mode using cargo watch..."
+    cargo watch -x run &
+    TRACKER_PID=$!
+else
+    echo "Starting the tracker..."
+    cargo run &
+    TRACKER_PID=$!
+fi
 
 # Change to the frontend directory
 cd ../frontend
