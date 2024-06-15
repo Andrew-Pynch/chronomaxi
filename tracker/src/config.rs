@@ -22,6 +22,9 @@ impl LogMethod {
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct Configuration {
     pub log_methods: Vec<LogMethod>,
+    pub log_every_n_logs: usize,
+    pub stats_every_n_seconds: i64,
+    pub log_iteration_pause_ms: u64,
 }
 
 impl Configuration {
@@ -33,6 +36,11 @@ impl Configuration {
             .filter_map(|opt| opt.and_then(|s| LogMethod::from_str(&s)))
             .collect();
 
-        Ok(Self { log_methods })
+        Ok(Self {
+            log_methods,
+            log_every_n_logs: 100,
+            stats_every_n_seconds: 15,
+            log_iteration_pause_ms: 250,
+        })
     }
 }

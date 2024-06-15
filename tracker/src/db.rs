@@ -26,7 +26,7 @@ impl DbConnection {
         let durations: HashMap<usize, f64> = logs
             .iter()
             .enumerate()
-            .map(|(index, log)| (index, log.duration_ms.unwrap_or(0.0) as f64))
+            .map(|(index, log)| (index, log.duration_ms.unwrap_or(0) as f64))
             .collect();
         let insert_ids: HashMap<usize, String> = logs
             .iter()
@@ -58,8 +58,6 @@ impl DbConnection {
                 ],
             )?;
         }
-        //         activity_log.created_at.to_rfc3339(),
-        // activity_log.updated_at.to_rfc3339(),
 
         tx.commit()?;
         println!("Inserted {} logs", logs.len());

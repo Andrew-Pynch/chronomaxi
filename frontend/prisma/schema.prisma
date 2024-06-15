@@ -26,7 +26,6 @@ model Log {
   windowId    String
   programProcessName String?
   programName String?
-  tmuxProgramName String?
   browserTitle String?
   keysPressedCount Int?
 }
