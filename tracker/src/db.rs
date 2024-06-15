@@ -38,12 +38,17 @@ impl DbConnection {
             .enumerate()
             .map(|(index, log)| (index, log.created_at.unwrap().to_rfc3339()))
             .collect();
+        let is_idles: HashMap<usize, bool> = logs
+            .iter()
+            .enumerate()
+            .map(|(index, log)| (index, log.is_idle))
+            .collect();
 
         let tx = self.conn.transaction()?;
 
         for (index, log) in logs.iter().enumerate() {
             tx.execute(
-                "INSERT INTO \"Log\" (id, \"durationMs\", \"deviceName\", \"windowId\", \"programProcessName\", \"programName\", \"browserTitle\", \"keysPressedCount\", \"createdAt\", \"updatedAt\") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT INTO \"Log\" (id, \"durationMs\", \"deviceName\", \"windowId\", \"programProcessName\", \"programName\", \"browserTitle\", \"keysPressedCount\", \"createdAt\", \"updatedAt\", \"isIdle\") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     &insert_ids[&index],
                     &durations[&index],
@@ -55,12 +60,12 @@ impl DbConnection {
                     &keys_pressed[&index],
                     &created_at_natives[&index],
                     &created_at_natives[&index],
+                    &is_idles[&index],
                 ],
             )?;
         }
 
         tx.commit()?;
-        println!("Inserted {} logs", logs.len());
 
         Ok(true)
     }

@@ -9,8 +9,6 @@ use crate::{config::Configuration, db::DbConnection, idle_tracking::IdleTracker,
 /// The logged data is periodically saved to a database.
 pub struct LoggerV4 {
     pub idle_tracker: IdleTracker,
-    pub is_idle: bool,
-
     pub config: Configuration,
     pub db: DbConnection,
 
@@ -34,8 +32,6 @@ impl LoggerV4 {
     pub async fn new() -> Result<LoggerV4, Box<dyn std::error::Error>> {
         Ok(LoggerV4 {
             idle_tracker: IdleTracker::new(),
-            is_idle: false,
-
             config: Configuration::from_env().await?,
             db: DbConnection::new()?,
             device_state: device_query::DeviceState::new(),
@@ -73,50 +69,14 @@ impl LoggerV4 {
                 println!("Error logging on window change: {:?}", e);
             }
 
-            self.handle_idle_and_logging();
+            self.stats_every_n_logs(&self.current_log.as_ref().unwrap());
+            self.save_to_db_every_n_seconds();
 
             // sleep for 250ms before next iteration
             tokio::time::sleep(std::time::Duration::from_millis(
                 self.config.log_iteration_pause_ms,
             ))
             .await;
-        }
-    }
-
-    /// Handles the idle tracking functionality of the logger.
-    /// It checks if the user is idle based on the current log and updates the idle state accordingly.
-    /// If the user is not idle, it performs logging activities such as printing stats and saving logs to the database.
-    pub fn handle_idle_and_logging(&mut self) {
-        if let Some(current_log) = self.current_log.as_ref() {
-            if self.is_idle {
-                // If the logger is currently in idle mode
-                if !self.idle_tracker.is_idle(current_log) {
-                    // If the user is no longer idle based on the current log
-                    self.is_idle = false; // Set the idle state to false
-                    println!("User activity detected. Resuming normal logging.");
-                }
-            } else {
-                // If the logger is not currently in idle mode
-                if self.idle_tracker.is_idle(current_log) {
-                    // If the user is idle based on the current log
-                    let time_until_idle = self.idle_tracker.idle_threshold_ms
-                        - current_log.duration_ms.unwrap_or_default();
-                    println!(
-                        "{} ms until program enters idle mode and stops logging",
-                        time_until_idle
-                    );
-
-                    if time_until_idle <= 0 {
-                        // If the time until idle is less than or equal to zero
-                        self.is_idle = true; // Set the idle state to true
-                        println!("Entering idle mode. Logging paused.");
-                    }
-                } else {
-                    // If the user is not idle
-                    self.stats_every_n_logs(current_log); // Print stats if the log count reaches a threshold
-                    self.save_to_db_every_n_seconds(); // Save logs to the database periodically
-                }
-            }
         }
     }
 
@@ -211,7 +171,8 @@ impl LoggerV4 {
     /// * `log` - A reference to the current log.
     pub fn stats_every_n_logs(&self, log: &Log) {
         if self.logs.len() >= self.config.log_every_n_logs {
-            println!("\n\nLog Snapshot: \n{}", log)
+            println!("\nThere are currently {} logs", self.logs.len());
+            println!("\nLog Snapshot: \n{}\n\n", log);
         }
     }
 
@@ -230,7 +191,7 @@ impl LoggerV4 {
         let (mouse_x, mouse_y) = self.get_mouse_position();
         let keys_pressed_count = Some(self.get_keys_pressed_count());
 
-        let log = Log {
+        let mut log = Log {
             current_window_id: Some(current_window_id),
             current_program_process_name: Some(current_program_process_name),
             current_program_name: Some(current_program_name),
@@ -241,7 +202,9 @@ impl LoggerV4 {
             created_at: Some(Utc::now()),
             log_start_time_utc: Some(Utc::now()),
             log_end_time_utc: None,
+            is_idle: false,
         };
+        log.is_idle = self.idle_tracker.is_idle(&log);
 
         Ok(log)
     }

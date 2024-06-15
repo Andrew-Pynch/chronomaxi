@@ -17,6 +17,8 @@ pub struct Log {
     pub created_at: Option<DateTime<Utc>>,
     pub log_start_time_utc: Option<DateTime<Utc>>,
     pub log_end_time_utc: Option<DateTime<Utc>>,
+
+    pub is_idle: bool,
 }
 
 impl fmt::Display for Log {
@@ -24,7 +26,7 @@ impl fmt::Display for Log {
         let (mouse_x, mouse_y) = self.current_mouse_position.unwrap_or((0, 0));
         write!(
             f,
-            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}",
+            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}\nIsIdle: {:?}",
             self.current_window_id,
             self.current_program_process_name,
             self.current_program_name,
@@ -36,6 +38,7 @@ impl fmt::Display for Log {
             self.created_at,
             self.log_start_time_utc,
             self.log_end_time_utc,
+            self.is_idle
         )
     }
 }
@@ -53,6 +56,7 @@ impl Log {
             created_at: None,
             log_start_time_utc: None,
             log_end_time_utc: None,
+            is_idle: false,
         }
     }
 

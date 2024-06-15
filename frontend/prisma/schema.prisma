@@ -22,11 +22,15 @@ model Log {
 
   durationMs  Int
 
+  isIdle      Boolean
   deviceName  String?
   windowId    String
   programProcessName String?
   programName String?
   browserTitle String?
   keysPressedCount Int?
+
+  @@index([isIdle])
+  @@index([windowId])
 }
 

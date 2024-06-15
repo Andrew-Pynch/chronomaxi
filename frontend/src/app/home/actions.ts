@@ -9,6 +9,9 @@ export type GetActivityData = Awaited<
 
 export const getActivityDataForCurrentUser = async () => {
     const logs = await db.log.findMany({
+        where: {
+            isIdle: false,
+        },
         orderBy: {
             createdAt: "asc",
         },
