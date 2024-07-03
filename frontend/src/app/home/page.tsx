@@ -10,7 +10,7 @@ const Home = async () => {
     const data = await getActivityDataForCurrentUser();
 
     if (!data) {
-        return <div>No data</div>;
+        return <div>No data?</div>;
     }
 
     return (
