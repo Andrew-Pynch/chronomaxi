@@ -17,7 +17,6 @@ pub struct LoggerV4 {
     pub idle_tracker: IdleTracker,
     pub config: Configuration,
     pub db: DbConnection,
-
     pub device_state: device_query::DeviceState,
     pub last_mouse_position: Option<(i32, i32)>,
     pub last_mouse_state: MouseState,
@@ -42,11 +41,13 @@ impl LoggerV4 {
         let initial_mouse_position = device_state.get_mouse().coords;
         let initial_mouse_state = device_state.get_mouse();
 
+        let config = Configuration::from_env()?;
+        let db = DbConnection::new(&config).await?;
+
         Ok(LoggerV4 {
             idle_tracker: IdleTracker::new(),
-            config: Configuration::from_env().await?,
-            db: DbConnection::new()?,
-
+            config,
+            db,
             device_state,
             last_mouse_position: Some(initial_mouse_position),
             last_mouse_state: initial_mouse_state,
@@ -102,7 +103,7 @@ impl LoggerV4 {
             }
 
             self.stats_every_n_logs(&self.current_log.as_ref().unwrap());
-            self.save_to_db_every_n_seconds();
+            self.save_to_db_every_n_seconds().await;
 
             // sleep for 250ms before next iteration
             tokio::time::sleep(std::time::Duration::from_millis(
@@ -179,15 +180,15 @@ impl LoggerV4 {
     /// Saves the collected logs to the database every specified number of seconds.
     /// It performs pre-insertion checks, inserts the logs into the database,
     /// clears the log collection, and updates the last bulk insert time.
-    pub fn save_to_db_every_n_seconds(&mut self) {
+    pub async fn save_to_db_every_n_seconds(&mut self) {
         self.end_current_log().unwrap();
 
         let elapsed_time = Utc::now() - self.last_bulk_insert_time;
         if elapsed_time.num_seconds() >= self.config.stats_every_n_seconds {
-            let insert_result = self.db.bulk_insert_logs(&self.logs);
+            let insert_result = self.db.bulk_insert_logs(&self.logs).await;
 
-            if insert_result.is_err() {
-                println!("Error inserting logs: {:?}", insert_result);
+            if let Err(e) = insert_result {
+                println!("Error inserting logs: {:?}", e);
             } else {
                 println!("Inserted {} logs", self.logs.len());
             }
