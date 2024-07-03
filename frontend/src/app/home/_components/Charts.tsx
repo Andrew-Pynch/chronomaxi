@@ -128,6 +128,38 @@ const Charts = ({ data }: Props) => {
                     <Legend />
                 </PieChart>
             </ResponsiveContainer>
+
+            <h1>Activity Categories</h1>
+            <ResponsiveContainer width="100%" height={400}>
+                <PieChart>
+                    <Pie
+                        data={data.categoryPercentages}
+                        dataKey="percentage"
+                        nameKey="category"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        fill="#8884d8"
+                        label={({ category, percentage }) =>
+                            `${category} ${percentage}%`
+                        }
+                    >
+                        {data.categoryPercentages.map((entry, index) => (
+                            <Cell
+                                key={`cell-${index}`}
+                                fill={COLORS[index % COLORS.length]}
+                            />
+                        ))}
+                    </Pie>
+                    <Tooltip
+                        formatter={(value: number) => [
+                            `${value}%`,
+                            "Percentage",
+                        ]}
+                    />
+                    <Legend />
+                </PieChart>
+            </ResponsiveContainer>
         </div>
     );
 };

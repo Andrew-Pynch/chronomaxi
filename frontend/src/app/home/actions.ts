@@ -8,9 +8,15 @@ export type GetActivityData = Awaited<
 >;
 
 export const getActivityDataForCurrentUser = async () => {
+    // only last 24 hours
+    const showActivityAfterDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
     const logs = await db.log.findMany({
         where: {
             isIdle: false,
+            createdAt: {
+                gte: showActivityAfterDate,
+            },
         },
         orderBy: {
             createdAt: "asc",

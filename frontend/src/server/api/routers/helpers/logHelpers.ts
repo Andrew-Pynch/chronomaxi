@@ -16,6 +16,7 @@ export const LogHelpers = {
             LogHelpers.getKeystrokeFrequencyPerHourToday(logs);
         const acivityPerProgramToday =
             LogHelpers.getAcivityPerProgramToday(logs);
+        const categoryPercentages = LogHelpers.getCategoryPercentages(logs);
 
         return {
             hoursOfActivityPerDay,
@@ -26,6 +27,7 @@ export const LogHelpers = {
             acivityPerProgramToday,
             summaryData,
             hoursWorkedPerDay,
+            categoryPercentages,
         };
     },
     getSummaryData: (logs: Log[]) => {
@@ -41,17 +43,38 @@ export const LogHelpers = {
                         date,
                         totalHours: 0,
                         keystrokes: 0,
+                        leftClickCount: 0,
+                        rightClickCount: 0,
+                        middleClickCount: 0,
+                        mouseMovementInMM: 0,
                     };
                 }
 
                 acc[date]!.totalHours += (log.durationMs || 0) / 1000 / 60 / 60;
                 acc[date]!.keystrokes += log.keysPressedCount || 0;
+                acc[date]!.leftClickCount += log.leftClickCount || 0;
+                acc[date]!.rightClickCount += log.rightClickCount || 0;
+                acc[date]!.middleClickCount += log.middleClickCount || 0;
+                acc[date]!.mouseMovementInMM += log.mouseMovementInMM || 0;
+
+                if (log.mouseMovementInMM !== 0) {
+                    console.log(log.mouseMovementInMM);
+                }
+
 
                 return acc;
             },
             {} as Record<
                 string,
-                { date: string; totalHours: number; keystrokes: number }
+                {
+                    date: string;
+                    totalHours: number;
+                    keystrokes: number;
+                    leftClickCount: number;
+                    rightClickCount: number;
+                    middleClickCount: number;
+                    mouseMovementInMM: number;
+                }
             >,
         );
 
@@ -203,5 +226,36 @@ export const LogHelpers = {
             date,
             hours: Math.round(hours * 100) / 100,
         }));
+    },
+    getCategoryPercentages: (logs: Log[]) => {
+        const today = new Date().toDateString();
+        const logsToday = logs.filter(
+            (log) => new Date(log.createdAt).toDateString() === today,
+        );
+
+        const categoryDurations = logsToday.reduce(
+            (acc, log) => {
+                if (!acc[log.category]) {
+                    acc[log.category] = 0;
+                }
+                acc[log.category] += log.durationMs || 0;
+                return acc;
+            },
+            {} as Record<string, number>,
+        );
+
+        const totalDuration = Object.values(categoryDurations).reduce(
+            (sum, duration) => sum + duration,
+            0,
+        );
+
+        const categoryPercentages = Object.entries(categoryDurations).map(
+            ([category, duration]) => ({
+                category,
+                percentage: Math.round((duration / totalDuration) * 100),
+            }),
+        );
+
+        return categoryPercentages.sort((a, b) => b.percentage - a.percentage);
     },
 };

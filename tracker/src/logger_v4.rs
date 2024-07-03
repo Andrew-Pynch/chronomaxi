@@ -1,8 +1,14 @@
 use chrono::Utc;
-use device_query::DeviceQuery;
+use device_query::{DeviceQuery, MouseState};
 use std::process::Command;
 
-use crate::{config::Configuration, db::DbConnection, idle_tracking::IdleTracker, log::Log};
+use crate::{
+    category::{self, Category},
+    config::Configuration,
+    db::DbConnection,
+    idle_tracking::IdleTracker,
+    log::Log,
+};
 
 /// LoggerV4 is a struct that represents the logging functionality for chronomaxi.
 /// It captures and logs user activity such as window changes, key presses, and mouse movements.
@@ -13,6 +19,8 @@ pub struct LoggerV4 {
     pub db: DbConnection,
 
     pub device_state: device_query::DeviceState,
+    pub last_mouse_position: Option<(i32, i32)>,
+    pub last_mouse_state: MouseState,
 
     pub logs: Vec<Log>,
 
@@ -30,12 +38,21 @@ impl LoggerV4 {
     /// # Returns
     /// A `Result` containing the new `LoggerV4` instance or an error if initialization fails.
     pub async fn new() -> Result<LoggerV4, Box<dyn std::error::Error>> {
+        let device_state = device_query::DeviceState::new();
+        let initial_mouse_position = device_state.get_mouse().coords;
+        let initial_mouse_state = device_state.get_mouse();
+
         Ok(LoggerV4 {
             idle_tracker: IdleTracker::new(),
             config: Configuration::from_env().await?,
             db: DbConnection::new()?,
-            device_state: device_query::DeviceState::new(),
+
+            device_state,
+            last_mouse_position: Some(initial_mouse_position),
+            last_mouse_state: initial_mouse_state,
+
             logs: Vec::new(),
+
             last_bulk_insert_time: chrono::Utc::now(),
 
             current_log: None,
@@ -64,6 +81,21 @@ impl LoggerV4 {
             if let Err(e) = self.accumulate_keys_pressed() {
                 println!("Error accumulating keys pressed: {:?}", e);
             }
+
+            if let Err(e) = self.accumulate_left_click_count() {
+                println!("Error accumulating left click count: {:?}", e);
+            }
+
+            if let Err(e) = self.accumulate_right_click_count() {
+                println!("Error accumulating right click count: {:?}", e);
+            }
+
+            if let Err(e) = self.accumulate_middle_click_count() {
+                println!("Error accumulating middle click count: {:?}", e);
+            }
+
+            // reset mouse state
+            self.last_mouse_state = self.device_state.get_mouse();
 
             if let Err(e) = self.log_on_window_change() {
                 println!("Error logging on window change: {:?}", e);
@@ -186,16 +218,30 @@ impl LoggerV4 {
         let current_window_id = self.get_window_id();
         let current_program_process_name = self.get_program_process_name(current_window_id.clone());
         let current_program_name = self.get_program_name(current_window_id.clone());
-        let current_browser_title =
-            self.get_browser_title(current_program_name.clone(), current_window_id.clone());
+
+        let (current_browser_title, current_browser_site_name) = self
+            .get_browser_title_and_site_name(
+                current_program_process_name.clone(),
+                current_window_id.clone(),
+            )
+            .unwrap_or((None, None));
+
         let (mouse_x, mouse_y) = self.get_mouse_position();
         let keys_pressed_count = Some(self.get_keys_pressed_count());
+
+        let category = self.get_category(
+            &current_program_name,
+            &current_program_process_name,
+            current_browser_title.as_deref(),
+            current_browser_site_name.as_deref(),
+        );
+        let mouse_movement_mm = self.get_mouse_movement_mm();
 
         let mut log = Log {
             current_window_id: Some(current_window_id),
             current_program_process_name: Some(current_program_process_name),
             current_program_name: Some(current_program_name),
-            current_browser_title: Some(current_browser_title),
+            current_browser_title: current_browser_title,
             current_mouse_position: Some((mouse_x, mouse_y)),
             duration_ms: None,
             keys_pressed_count,
@@ -203,6 +249,11 @@ impl LoggerV4 {
             log_start_time_utc: Some(Utc::now()),
             log_end_time_utc: None,
             is_idle: false,
+            category: Some(category),
+            mouse_movement_mm: Some(mouse_movement_mm as f64),
+            left_click_count: Some(0),
+            right_click_count: Some(0),
+            middle_click_count: Some(0),
         };
         log.is_idle = self.idle_tracker.is_idle(&log);
 
@@ -271,18 +322,18 @@ impl LoggerV4 {
     ///
     /// # Returns
     /// A `bool` indicating whether the program is a web browser.
-    pub fn is_current_program_browser(&self, current_program_name: String) -> bool {
+    pub fn is_current_program_browser(&self, current_program_process_name: String) -> bool {
         const FIREFOX: &str = "firefox";
         const CHROME: &str = "chrome";
         const BRAVE: &str = "brave-browser";
         const EDGE: &str = "edge";
         const SAFARI: &str = "safari";
 
-        return current_program_name == FIREFOX
-            || current_program_name == CHROME
-            || current_program_name == BRAVE
-            || current_program_name == EDGE
-            || current_program_name == SAFARI;
+        return current_program_process_name == FIREFOX
+            || current_program_process_name == CHROME
+            || current_program_process_name == BRAVE
+            || current_program_process_name == EDGE
+            || current_program_process_name == SAFARI;
     }
 
     /// Retrieves the title of the web browser window associated with the given window ID.
@@ -292,13 +343,13 @@ impl LoggerV4 {
     /// * `current_window_id` - A `String` representing the current window ID.
     ///
     /// # Returns
-    /// A `String` representing the browser window title, or an empty string if the program is not a browser.
-    pub fn get_browser_title(
+    /// A `Option<(String, Option<String>)>` representing the browser window title and site name, or `None` if the program is not a browser.
+    pub fn get_browser_title_and_site_name(
         &self,
-        current_program_name: String,
+        current_program_process_name: String,
         current_window_id: String,
-    ) -> String {
-        if self.is_current_program_browser(current_program_name.clone()) {
+    ) -> Option<(Option<String>, Option<String>)> {
+        if self.is_current_program_browser(current_program_process_name.clone()) {
             let browser_title = Command::new("xdotool")
                 .arg("getwindowname")
                 .arg(current_window_id)
@@ -307,15 +358,21 @@ impl LoggerV4 {
                 .stdout;
 
             let browser_title_str = String::from_utf8(browser_title).unwrap();
-            let browser_title_parts: Vec<&str> = browser_title_str.split(" - ").collect();
+            let browser_title_parts: Vec<&str> = browser_title_str.trim().split(" - ").collect();
 
-            if browser_title_parts.len() >= 2 {
-                return browser_title_parts[0].trim().to_string();
-            } else {
-                return browser_title_str.trim().to_string();
+            match browser_title_parts.len() {
+                3 => Some((
+                    Some(browser_title_parts[0].trim().to_string()),
+                    Some(browser_title_parts[1].trim().to_string()),
+                )),
+                2 => Some((
+                    Some(browser_title_parts[0].trim().to_string()),
+                    Some(browser_title_parts[1].trim().to_string()),
+                )),
+                _ => Some((Some(browser_title_str.trim().to_string()), None)),
             }
         } else {
-            return String::from("");
+            None
         }
     }
 
@@ -368,4 +425,87 @@ impl LoggerV4 {
 
         return keys_pressed_count;
     }
+
+    /// Retrieves the category of the current activity.
+    ///
+    /// # Returns
+    /// A `String` representing the category of the current activity.
+    pub fn get_category(
+        &self,
+        program_name: &str,
+        program_process_name: &str,
+        browser_title: Option<&str>,
+        browser_site_name: Option<&str>,
+    ) -> Category {
+        return category::get_category(
+            program_name,
+            program_process_name,
+            browser_title,
+            browser_site_name,
+        );
+    }
+
+    /// Retrieves the mouse movement in millimeters.
+    ///
+    /// # Returns
+    /// A `usize` representing the mouse movement in millimeters.
+    pub fn get_mouse_movement_mm(&mut self) -> f64 {
+        let current_position = self.device_state.get_mouse().coords;
+
+        // why did I make this an option? too late not changing :D
+        let movement = if let Some(last_position) = self.last_mouse_position {
+            (
+                (current_position.0 - last_position.0) as f64,
+                (current_position.1 - last_position.1) as f64,
+            )
+        } else {
+            (0.0, 0.0)
+        };
+
+        // Update last_mouse_position for the next call
+        self.last_mouse_position = Some(current_position);
+
+        // Calculate Euclidean distance
+        let distance_px = (movement.0.powi(2) + movement.1.powi(2)).sqrt();
+
+        // Convert pixels to millimeters
+        // This conversion factor assumes a standard 96 DPI screen
+        // You might want to make this configurable or detect it dynamically
+        let px_to_mm = 25.4 / 96.0;
+        let distance_mm = distance_px * px_to_mm;
+
+        distance_mm
+    }
+
+    // === these check if button is pressed and if it wasn't pressed before ===
+    pub fn accumulate_left_click_count(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let current_mouse_state = self.device_state.get_mouse();
+        if current_mouse_state.button_pressed[1] && !self.last_mouse_state.button_pressed[1] {
+            if let Some(log) = self.current_log.as_mut() {
+                log.left_click_count = Some(log.left_click_count.unwrap_or(0) + 1);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn accumulate_right_click_count(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let current_mouse_state = self.device_state.get_mouse();
+        if current_mouse_state.button_pressed[3] && !self.last_mouse_state.button_pressed[3] {
+            if let Some(log) = self.current_log.as_mut() {
+                log.right_click_count = Some(log.right_click_count.unwrap_or(0) + 1);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn accumulate_middle_click_count(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let current_mouse_state = self.device_state.get_mouse();
+        if current_mouse_state.button_pressed[2] && !self.last_mouse_state.button_pressed[2] {
+            if let Some(log) = self.current_log.as_mut() {
+                log.middle_click_count = Some(log.middle_click_count.unwrap_or(0) + 1);
+            }
+        }
+        Ok(())
+    }
+    // ========================================================================
 }

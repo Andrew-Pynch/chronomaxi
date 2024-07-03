@@ -22,6 +22,8 @@ model Log {
 
   durationMs  Int
 
+  category    String
+
   isIdle      Boolean
   deviceName  String?
   windowId    String
@@ -29,6 +31,12 @@ model Log {
   programName String
   browserTitle String?
   keysPressedCount Int?
+
+  // new stats
+  mouseMovementInMM Float?
+  leftClickCount    Int?
+  rightClickCount   Int?
+  middleClickCount  Int?
 
   @@index([isIdle])
   @@index([windowId])

@@ -1,7 +1,6 @@
+use crate::category::Category;
 use chrono::{DateTime, Utc};
 use std::fmt::{self, Formatter};
-
-use crate::idle_tracking::IdleTracker;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq)]
 pub struct Log {
@@ -18,6 +17,12 @@ pub struct Log {
     pub log_start_time_utc: Option<DateTime<Utc>>,
     pub log_end_time_utc: Option<DateTime<Utc>>,
 
+    pub category: Option<Category>,
+    pub mouse_movement_mm: Option<f64>,
+    pub left_click_count: Option<usize>,
+    pub right_click_count: Option<usize>,
+    pub middle_click_count: Option<usize>,
+
     pub is_idle: bool,
 }
 
@@ -26,7 +31,7 @@ impl fmt::Display for Log {
         let (mouse_x, mouse_y) = self.current_mouse_position.unwrap_or((0, 0));
         write!(
             f,
-            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}\nIsIdle: {:?}",
+            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}\nIsIdle: {:?}\n Category: {:?}\n Mouse Movement in (mm): {:?}\nLeft Clicks: {:?}\n Right Clicks: {:?}\n Middle Clicks: {:?}",
             self.current_window_id,
             self.current_program_process_name,
             self.current_program_name,
@@ -38,7 +43,12 @@ impl fmt::Display for Log {
             self.created_at,
             self.log_start_time_utc,
             self.log_end_time_utc,
-            self.is_idle
+            self.is_idle,
+            self.category,
+            self.mouse_movement_mm,
+            self.left_click_count,
+            self.right_click_count,
+            self.middle_click_count
         )
     }
 }
@@ -57,6 +67,11 @@ impl Log {
             log_start_time_utc: None,
             log_end_time_utc: None,
             is_idle: false,
+            category: None,
+            mouse_movement_mm: None,
+            left_click_count: None,
+            right_click_count: None,
+            middle_click_count: None,
         }
     }
 

@@ -8,3 +8,4 @@ pub mod log;
 pub mod logger_v4;
 pub mod program_tracking;
 pub mod tmux;
+pub mod category;
