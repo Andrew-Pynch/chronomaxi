@@ -8,6 +8,7 @@ export const LogHelpers = {
         const activityPerProgramPerDay =
             LogHelpers.getAcivityPerProgramToday(logs);
         const summaryData = LogHelpers.getSummaryData(logs);
+        const summaryDataLast24Hours = LogHelpers.getSummaryDataLast24Hours(logs);
         const hoursWorkedPerDay = LogHelpers.getHoursWorkedPerDay(logs);
 
         // today stats
@@ -26,9 +27,44 @@ export const LogHelpers = {
             keystrokeFrequencyPerHourToday,
             acivityPerProgramToday,
             summaryData,
+            summaryDataLast24Hours,
             hoursWorkedPerDay,
             categoryPercentages,
         };
+    },
+    getSummaryDataLast24Hours: (logs: Log[]) => {
+        const now = new Date();
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+        const summaryData = logs.reduce(
+            (acc, log) => {
+                if (log.createdAt < yesterday) {
+                    return acc;
+                }
+
+                acc.totalHours += (log.durationMs || 0) / 1000 / 60 / 60;
+                acc.keystrokes += log.keysPressedCount || 0;
+                acc.leftClickCount += log.leftClickCount || 0;
+                acc.rightClickCount += log.rightClickCount || 0;
+                acc.middleClickCount += log.middleClickCount || 0;
+                acc.mouseMovementInMM += log.mouseMovementInMM || 0;
+
+                return acc;
+            },
+            {
+                totalHours: 0,
+                keystrokes: 0,
+                leftClickCount: 0,
+                rightClickCount: 0,
+                middleClickCount: 0,
+                mouseMovementInMM: 0,
+            }
+        );
+
+        // Round totalHours to 2 decimal places
+        summaryData.totalHours = Math.round(summaryData.totalHours * 100) / 100;
+
+        return summaryData;
     },
     getSummaryData: (logs: Log[]) => {
         const summaryData = logs.reduce(

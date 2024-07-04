@@ -1,6 +1,7 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use device_query::{DeviceQuery, MouseState};
 use std::process::Command;
+use tokio::time;
 
 use crate::{
     category::{self, Category},
@@ -76,7 +77,13 @@ impl LoggerV4 {
 
         self.current_log = Some(self.capture()?);
 
+        let mut interval = time::interval(
+            Duration::milliseconds(self.config.log_iteration_pause_ms as i64).to_std()?,
+        );
+
         loop {
+            interval.tick().await;
+
             self.current_window_id = Some(self.get_window_id());
 
             if let Err(e) = self.accumulate_keys_pressed() {
@@ -102,14 +109,11 @@ impl LoggerV4 {
                 println!("Error logging on window change: {:?}", e);
             }
 
-            self.stats_every_n_logs(&self.current_log.as_ref().unwrap());
-            self.save_to_db_every_n_seconds().await;
+            if let Some(log) = &self.current_log {
+                self.stats_every_n_seconds(log);
+            }
 
-            // sleep for 250ms before next iteration
-            tokio::time::sleep(std::time::Duration::from_millis(
-                self.config.log_iteration_pause_ms,
-            ))
-            .await;
+            self.save_to_db_every_n_seconds().await;
         }
     }
 
@@ -184,7 +188,7 @@ impl LoggerV4 {
         self.end_current_log().unwrap();
 
         let elapsed_time = Utc::now() - self.last_bulk_insert_time;
-        if elapsed_time.num_seconds() >= self.config.stats_every_n_seconds {
+        if elapsed_time >= Duration::seconds(self.config.stats_every_n_seconds) {
             let insert_result = self.db.bulk_insert_logs(&self.logs).await;
 
             if let Err(e) = insert_result {
@@ -202,8 +206,9 @@ impl LoggerV4 {
     ///
     /// # Arguments
     /// * `log` - A reference to the current log.
-    pub fn stats_every_n_logs(&self, log: &Log) {
-        if self.logs.len() >= self.config.log_every_n_logs {
+    pub fn stats_every_n_seconds(&self, log: &Log) {
+        let elapsed_time = Utc::now() - self.last_bulk_insert_time;
+        if elapsed_time >= Duration::seconds(self.config.stats_every_n_seconds) {
             println!("\nThere are currently {} logs", self.logs.len());
             println!("\nLog Snapshot: \n{}\n\n", log);
         }

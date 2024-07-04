@@ -38,6 +38,27 @@ const ActivitySummary = ({ data }: Props) => {
                             >
                                 Keystrokes
                             </th>
+                            <th
+                                scope="col"
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                                Left Clicks
+                            </th>
+                            <th
+                                scope="col"
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                                Right Clicks
+                            </th>
+                            <th
+                                scope="col"
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                                Middle Clicks
+                            </th>
+                            <th>
+                                Mouse Movement in MM
+                            </th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -55,6 +76,18 @@ const ActivitySummary = ({ data }: Props) => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {entry.keystrokes}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {entry.leftClickCount}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {entry.rightClickCount}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {entry.middleClickCount}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {entry.mouseMovementInMM}
                                     </td>
                                 </tr>
                             ))}
