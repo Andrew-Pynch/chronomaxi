@@ -1,6 +1,6 @@
 import { Log } from "@prisma/client";
 
-const convertMMToInches = (value?: number): number => {
+const convertMMToInches = (value?: number | null): number => {
     if (!value) return 0;
     // my tracker isn't accurate (by a lot) so fuck it we ball
     return Number((value / 25.4).toFixed(2));
