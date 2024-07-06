@@ -15,6 +15,8 @@ export const LogHelpers = {
         const hoursOfAcitivityToday = LogHelpers.getHoursOfActivityToday(logs);
         const keystrokeFrequencyPerHourToday =
             LogHelpers.getKeystrokeFrequencyPerHourToday(logs);
+        const interactionDataLast24Hours =
+            LogHelpers.getInteractionDataLast24Hours(logs);
         const acivityPerProgramToday =
             LogHelpers.getAcivityPerProgramToday(logs);
         const categoryPercentages = LogHelpers.getCategoryPercentages(logs);
@@ -24,6 +26,7 @@ export const LogHelpers = {
             countKeyStrokesPerDay,
             activityPerProgramPerDay,
             hoursOfAcitivityToday,
+            interactionDataLast24Hours,
             keystrokeFrequencyPerHourToday,
             acivityPerProgramToday,
             summaryData,
@@ -31,6 +34,63 @@ export const LogHelpers = {
             hoursWorkedPerDay,
             categoryPercentages,
         };
+    },
+    getInteractionDataLast24Hours: (logs: Log[]) => {
+        const now = new Date();
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const hourlySlices: Record<string, {
+            keyPresses: number,
+            mouseMovement: number,
+            leftClicks: number,
+            rightClicks: number,
+            middleClicks: number
+        }> = {};
+
+        // Initialize hourly slices for the last 24 hours
+        for (let i = 0; i < 24; i++) {
+            const sliceTime = new Date(now.getTime() - i * 60 * 60 * 1000);
+            const sliceKey = sliceTime.toISOString().slice(0, 13); // Format: YYYY-MM-DDTHH
+            hourlySlices[sliceKey] = {
+                keyPresses: 0,
+                mouseMovement: 0,
+                leftClicks: 0,
+                rightClicks: 0,
+                middleClicks: 0
+            };
+        }
+
+        // Filter logs for the last 24 hours and aggregate data
+        logs.filter(log => log.createdAt >= yesterday).forEach(log => {
+            const sliceKey = log.createdAt.toISOString().slice(0, 13);
+            if (hourlySlices[sliceKey]) {
+                hourlySlices[sliceKey]!.keyPresses += log.keysPressedCount || 0;
+                hourlySlices[sliceKey]!.mouseMovement += log.mouseMovementInMM || 0;
+                hourlySlices[sliceKey]!.leftClicks += log.leftClickCount || 0;
+                hourlySlices[sliceKey]!.rightClicks += log.rightClickCount || 0;
+                hourlySlices[sliceKey]!.middleClicks += log.middleClickCount || 0;
+            }
+        });
+
+        // Convert to array, sort by time, and format the time
+        const result = Object.entries(hourlySlices)
+            .map(([time, data]) => ({
+                time: new Date(time).toLocaleTimeString('en-US', { hour: '2-digit', hour12: false }),
+                ...data
+            }))
+            .sort((a, b) => a.time.localeCompare(b.time));
+
+        // Calculate totals
+        const totals = result.reduce((acc, hour) => ({
+            keyPresses: acc.keyPresses + hour.keyPresses,
+            mouseMovement: acc.mouseMovement + hour.mouseMovement,
+            leftClicks: acc.leftClicks + hour.leftClicks,
+            rightClicks: acc.rightClicks + hour.rightClicks,
+            middleClicks: acc.middleClicks + hour.middleClicks
+        }), { keyPresses: 0, mouseMovement: 0, leftClicks: 0, rightClicks: 0, middleClicks: 0 });
+
+        console.log('24-hour totals:', totals);
+
+        return result;
     },
     getSummaryDataLast24Hours: (logs: Log[]) => {
         const now = new Date();
