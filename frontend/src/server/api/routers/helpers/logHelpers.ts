@@ -1,5 +1,11 @@
 import { Log } from "@prisma/client";
 
+const convertMMToInches = (value?: number): number => {
+    if (!value) return 0;
+    // my tracker isn't accurate (by a lot) so fuck it we ball
+    return Number((value / 25.4).toFixed(2));
+};
+
 export const LogHelpers = {
     getStatsForLogs: (logs: Log[]) => {
         // per day stats
@@ -37,7 +43,6 @@ export const LogHelpers = {
     },
     getInteractionDataLast24Hours: (logs: Log[]) => {
         const now = new Date();
-        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const hourlySlices: Record<string, {
             keyPresses: number,
             mouseMovement: number,
@@ -59,36 +64,13 @@ export const LogHelpers = {
             };
         }
 
-        // Filter logs for the last 24 hours and aggregate data
-        logs.filter(log => log.createdAt >= yesterday).forEach(log => {
-            const sliceKey = log.createdAt.toISOString().slice(0, 13);
-            if (hourlySlices[sliceKey]) {
-                hourlySlices[sliceKey]!.keyPresses += log.keysPressedCount || 0;
-                hourlySlices[sliceKey]!.mouseMovement += log.mouseMovementInMM || 0;
-                hourlySlices[sliceKey]!.leftClicks += log.leftClickCount || 0;
-                hourlySlices[sliceKey]!.rightClicks += log.rightClickCount || 0;
-                hourlySlices[sliceKey]!.middleClicks += log.middleClickCount || 0;
-            }
-        });
-
         // Convert to array, sort by time, and format the time
         const result = Object.entries(hourlySlices)
             .map(([time, data]) => ({
-                time: new Date(time).toLocaleTimeString('en-US', { hour: '2-digit', hour12: false }),
+                time: time + ':00:00.000Z', // Complete the ISO string
                 ...data
             }))
             .sort((a, b) => a.time.localeCompare(b.time));
-
-        // Calculate totals
-        const totals = result.reduce((acc, hour) => ({
-            keyPresses: acc.keyPresses + hour.keyPresses,
-            mouseMovement: acc.mouseMovement + hour.mouseMovement,
-            leftClicks: acc.leftClicks + hour.leftClicks,
-            rightClicks: acc.rightClicks + hour.rightClicks,
-            middleClicks: acc.middleClicks + hour.middleClicks
-        }), { keyPresses: 0, mouseMovement: 0, leftClicks: 0, rightClicks: 0, middleClicks: 0 });
-
-        console.log('24-hour totals:', totals);
 
         return result;
     },
@@ -107,7 +89,7 @@ export const LogHelpers = {
                 acc.leftClickCount += log.leftClickCount || 0;
                 acc.rightClickCount += log.rightClickCount || 0;
                 acc.middleClickCount += log.middleClickCount || 0;
-                acc.mouseMovementInMM += log.mouseMovementInMM || 0;
+                acc.mouseMovementInInches += convertMMToInches(log?.mouseMovementInMM);
 
                 return acc;
             },
@@ -117,7 +99,7 @@ export const LogHelpers = {
                 leftClickCount: 0,
                 rightClickCount: 0,
                 middleClickCount: 0,
-                mouseMovementInMM: 0,
+                mouseMovementInInches: 0,
             }
         );
 
@@ -142,7 +124,7 @@ export const LogHelpers = {
                         leftClickCount: 0,
                         rightClickCount: 0,
                         middleClickCount: 0,
-                        mouseMovementInMM: 0,
+                        mouseMovementInInches: 0,
                     };
                 }
 
@@ -151,12 +133,7 @@ export const LogHelpers = {
                 acc[date]!.leftClickCount += log.leftClickCount || 0;
                 acc[date]!.rightClickCount += log.rightClickCount || 0;
                 acc[date]!.middleClickCount += log.middleClickCount || 0;
-                acc[date]!.mouseMovementInMM += log.mouseMovementInMM || 0;
-
-                if (log.mouseMovementInMM !== 0) {
-                    console.log(log.mouseMovementInMM);
-                }
-
+                acc[date]!.mouseMovementInInches += convertMMToInches(log?.mouseMovementInMM);
 
                 return acc;
             },
@@ -169,7 +146,7 @@ export const LogHelpers = {
                     leftClickCount: number;
                     rightClickCount: number;
                     middleClickCount: number;
-                    mouseMovementInMM: number;
+                    mouseMovementInInches: number;
                 }
             >,
         );
