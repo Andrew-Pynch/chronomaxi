@@ -74,9 +74,7 @@ const ActivitySummary = ({ data }: Props) => {
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {formatDuration(entry.totalHours)}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.keystrokes}
-                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap"> {entry.keystrokes} </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {entry.leftClickCount}
                                     </td>
@@ -87,7 +85,7 @@ const ActivitySummary = ({ data }: Props) => {
                                         {entry.middleClickCount}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.mouseMovementInMM}
+                                        {entry.mouseMovementInInches}
                                     </td>
                                 </tr>
                             ))}
