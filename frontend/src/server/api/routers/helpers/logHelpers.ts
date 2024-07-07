@@ -43,7 +43,8 @@ export const LogHelpers = {
     },
     getInteractionDataLast24Hours: (logs: Log[]) => {
         const now = new Date();
-        const hourlySlices: Record<string, {
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const hourlyData: Record<string, {
             keyPresses: number,
             mouseMovement: number,
             leftClicks: number,
@@ -51,34 +52,57 @@ export const LogHelpers = {
             middleClicks: number
         }> = {};
 
-        // Initialize hourly slices for the last 24 hours
+        // Filter logs for the last 24 hours and aggregate data
+        logs.filter(log => log.createdAt >= yesterday).forEach(log => {
+            const hourKey = new Date(log.createdAt).toISOString().slice(0, 13);
+            if (!hourlyData[hourKey]) {
+                hourlyData[hourKey] = {
+                    keyPresses: 0,
+                    mouseMovement: 0,
+                    leftClicks: 0,
+                    rightClicks: 0,
+                    middleClicks: 0
+                };
+            }
+            hourlyData[hourKey]!.keyPresses += log.keysPressedCount || 0;
+            hourlyData[hourKey]!.mouseMovement += log.mouseMovementInMM || 0;
+            hourlyData[hourKey]!.leftClicks += log.leftClickCount || 0;
+            hourlyData[hourKey]!.rightClicks += log.rightClickCount || 0;
+            hourlyData[hourKey]!.middleClicks += log.middleClickCount || 0;
+        });
+
+        // Fill in missing hours with zero values
         for (let i = 0; i < 24; i++) {
-            const sliceTime = new Date(now.getTime() - i * 60 * 60 * 1000);
-            const sliceKey = sliceTime.toISOString().slice(0, 13); // Format: YYYY-MM-DDTHH
-            hourlySlices[sliceKey] = {
-                keyPresses: 0,
-                mouseMovement: 0,
-                leftClicks: 0,
-                rightClicks: 0,
-                middleClicks: 0
-            };
+            const hourDate = new Date(now.getTime() - i * 60 * 60 * 1000);
+            const hourKey = hourDate.toISOString().slice(0, 13);
+            if (!hourlyData[hourKey]) {
+                hourlyData[hourKey] = {
+                    keyPresses: 0,
+                    mouseMovement: 0,
+                    leftClicks: 0,
+                    rightClicks: 0,
+                    middleClicks: 0
+                };
+            }
         }
 
-        // Convert to array, sort by time, and format the time
-        const result = Object.entries(hourlySlices)
+        // Convert to array and sort
+        return Object.entries(hourlyData)
             .map(([time, data]) => ({
-                time: time + ':00:00.000Z', // Complete the ISO string
-                ...data
+                time: time + ':00:00.000Z',
+                mouseMovementInInches: convertMMToInches(data.mouseMovement),
+                leftClickCount: data.leftClicks,
+                rightClickCount: data.rightClicks,
+                middleClickCount: data.middleClicks,
+                keystrokes: data.keyPresses
             }))
             .sort((a, b) => a.time.localeCompare(b.time));
-
-        return result;
     },
     getSummaryDataLast24Hours: (logs: Log[]) => {
         const now = new Date();
         const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-        const summaryData = logs.reduce(
+        let summaryData = logs.reduce(
             (acc, log) => {
                 if (log.createdAt < yesterday) {
                     return acc;
@@ -89,7 +113,7 @@ export const LogHelpers = {
                 acc.leftClickCount += log.leftClickCount || 0;
                 acc.rightClickCount += log.rightClickCount || 0;
                 acc.middleClickCount += log.middleClickCount || 0;
-                acc.mouseMovementInInches += convertMMToInches(log?.mouseMovementInMM);
+                acc.mouseMovementInMM += log.mouseMovementInMM || 0;
 
                 return acc;
             },
@@ -99,14 +123,23 @@ export const LogHelpers = {
                 leftClickCount: 0,
                 rightClickCount: 0,
                 middleClickCount: 0,
-                mouseMovementInInches: 0,
+                mouseMovementInMM: 0,
+                mouseMovementInInches: 0
             }
         );
 
         // Round totalHours to 2 decimal places
         summaryData.totalHours = Math.round(summaryData.totalHours * 100) / 100;
+        summaryData.mouseMovementInInches = convertMMToInches(summaryData.mouseMovementInMM);
 
-        return summaryData;
+        return {
+            totalHours: summaryData.totalHours,
+            keystrokes: summaryData.keystrokes,
+            leftClickCount: summaryData.leftClickCount,
+            rightClickCount: summaryData.rightClickCount,
+            middleClickCount: summaryData.middleClickCount,
+            mouseMovementInInches: summaryData.mouseMovementInInches
+        }
     },
     getSummaryData: (logs: Log[]) => {
         const summaryData = logs.reduce(
@@ -124,7 +157,7 @@ export const LogHelpers = {
                         leftClickCount: 0,
                         rightClickCount: 0,
                         middleClickCount: 0,
-                        mouseMovementInInches: 0,
+                        mouseMovementInMM: 0,
                     };
                 }
 
@@ -133,7 +166,7 @@ export const LogHelpers = {
                 acc[date]!.leftClickCount += log.leftClickCount || 0;
                 acc[date]!.rightClickCount += log.rightClickCount || 0;
                 acc[date]!.middleClickCount += log.middleClickCount || 0;
-                acc[date]!.mouseMovementInInches += convertMMToInches(log?.mouseMovementInMM);
+                acc[date]!.mouseMovementInMM += log.mouseMovementInMM || 0;
 
                 return acc;
             },
@@ -146,12 +179,21 @@ export const LogHelpers = {
                     leftClickCount: number;
                     rightClickCount: number;
                     middleClickCount: number;
-                    mouseMovementInInches: number;
+                    mouseMovementInMM: number;
                 }
             >,
         );
 
-        return summaryData;
+        const result = {
+            totalHours: summaryData.totalHours,
+            keystrokes: summaryData.keystrokes,
+            leftClickCount: summaryData.leftClickCount,
+            rightClickCount: summaryData.rightClickCount,
+            middleClickCount: summaryData.middleClickCount,
+            mouseMovementInInches: summaryData.mouseMovementInInches
+        }
+
+        return result;
     },
     getHoursOfActivityToday: (logs: Log[]) => {
         const today = new Date().toDateString();

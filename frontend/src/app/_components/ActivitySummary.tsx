@@ -62,33 +62,6 @@ const ActivitySummary = ({ data }: Props) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                        {data?.summaryData &&
-                            Object.values(data.summaryData).map((entry) => (
-                                <tr
-                                    key={entry.date}
-                                    className="hover:bg-gray-500"
-                                >
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.date}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {formatDuration(entry.totalHours)}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap"> {entry.keystrokes} </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.leftClickCount}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.rightClickCount}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.middleClickCount}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {entry.mouseMovementInInches}
-                                    </td>
-                                </tr>
-                            ))}
                     </tbody>
                 </table>
             </div>
