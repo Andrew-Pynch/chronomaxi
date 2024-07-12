@@ -18,6 +18,17 @@ shutdown() {
 # Register the Ctrl+C signal handler
 trap shutdown SIGINT
 
+# Change to the frontend directory
+cd frontend
+
+# Set environment to local and update the database
+echo "Setting environment to local and updating the database..."
+npm run env:local
+npm run update:db
+
+# Change back to the root directory
+cd ..
+
 # Change to the tracker directory
 cd tracker
 
@@ -37,15 +48,13 @@ cd ../frontend
 
 # Check if bun is installed
 if command_exists bun; then
-    echo "Bun is installed. Installing dependencies and running the website using Bun..."
-    bun install
+    echo "Bun is installed. Starting the website using Bun..."
     bun run local &
     WEBSITE_PID=$!
 else
     echo "Bun is not installed. Falling back to npm..."
     if command_exists npm; then
-        echo "Installing dependencies and running the website using npm..."
-        npm install
+        echo "Starting the website using npm..."
         npm run local &
         WEBSITE_PID=$!
     else
