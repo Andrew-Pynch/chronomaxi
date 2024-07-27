@@ -1,6 +1,5 @@
 use crate::config::Configuration;
 use crate::log::Log;
-use chrono::SecondsFormat;
 use rusqlite::{params, Connection as SqliteConnection};
 use tokio_postgres::{Client, NoTls};
 use uuid::Uuid;

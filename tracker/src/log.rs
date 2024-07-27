@@ -27,7 +27,7 @@ pub struct Log {
 }
 
 impl fmt::Display for Log {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let (mouse_x, mouse_y) = self.current_mouse_position.unwrap_or((0, 0));
         write!(
             f,
