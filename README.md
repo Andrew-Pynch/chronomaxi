@@ -46,9 +46,10 @@ brew install xdotool
 ```
 
 3. **Run the tracker / web interface**
-   3.5 **Run the tracker as a service (optional)**
-   Optionally, if you are on linux, you can run the tracker as a system service that runs on startup
-   with an auto retry policy. Here is how you do it:
+   
+3.5 **Run the tracker as a service (optional)**
+Optionally, if you are on linux, you can run the tracker as a system service that runs on startup
+with an auto retry policy. Here is how you do it:
 
 ```sh
 mkdir -p ~/.config/systemd/user
