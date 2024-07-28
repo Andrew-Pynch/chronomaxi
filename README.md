@@ -85,6 +85,9 @@ status
 ```sh
 systemctl --user status chronomaxi-tracker.service
 ```
+if its working the status should look something like this
+![image](https://github.com/user-attachments/assets/2363ea65-cbc7-4ba5-a86d-43535487e3f5)
+
 
 linger
 
