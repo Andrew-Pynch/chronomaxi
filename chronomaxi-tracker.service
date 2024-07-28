@@ -1,0 +1,13 @@
+[Unit]
+Description=Chrono Maxi Time Tracker
+After=network.target
+
+[Service]
+ExecStart=/${chronomaxi_installation_directory}/chronomaxi/tracker/target/release/backend
+WorkingDirectory=/${chronomaxi_installation_directory}/chronomaxi/tracker
+Environment="RUST_BACKTRACE=1"
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

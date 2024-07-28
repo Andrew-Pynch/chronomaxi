@@ -46,6 +46,56 @@ brew install xdotool
 ```
 
 3. **Run the tracker / web interface**
+   3.5 **Run the tracker as a service (optional)**
+   Optionally, if you are on linux, you can run the tracker as a system service that runs on startup
+   with an auto retry policy. Here is how you do it:
+
+```sh
+mkdir -p ~/.config/systemd/user
+```
+
+Copy the service template file to the user config directory: (Make sure to replace the path
+to your chronomaxi installation dir / tracker binary. You might have to run cargo build --release)
+
+```sh
+cp ./chronomaxi-tracker.service ~/.config/systemd/user
+```
+
+reload systemd after adding service file
+
+```sh
+systemctl --user daemon-reload
+```
+
+enable
+
+```sh
+systemctl --user enable chronomaxi-tracker.service
+```
+
+start
+
+```sh
+systemctl --user start chronomaxi-tracker.service
+```
+
+status
+
+```sh
+systemctl --user status chronomaxi-tracker.service
+```
+
+linger
+
+```sh
+sudo loginctl enable-linger $USER
+```
+
+if you need to view logs
+
+```sh
+journalctl -u chronomaxi-tracker.service
+```
 
 ### First Terminal (web interface)
 
