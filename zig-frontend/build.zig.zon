@@ -1,0 +1,11 @@
+.{
+    .name = "chronomaxi-gui",
+    .version = "0.0.1",
+    .dependencies = .{
+        .@"raylib-zig" = .{
+            .url = "https://github.com/Not-Nik/raylib-zig/archive/devel.tar.gz",
+            .hash = "122064a960fff658211413c4b3b56e1699719126c3d099d3ed43f9eaff17a936ad91",
+        },
+    },
+    .paths = .{""},
+}
