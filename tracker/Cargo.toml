@@ -18,7 +18,7 @@ sqlx = { version = "0.6.0", features = ["runtime-tokio-native-tls", "postgres", 
 tokio = { version = "1.0", features = ["full"] }
 postgres = { version = "0.19.0", features = ["with-chrono-0_4"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
-reqwest = { version = "0.11" }
+reqwest = { version = "0.11", features = ["json"] } 
 url = "2.2"
 webbrowser = "1.0.1"
 whoami = "1.5.1"
@@ -29,3 +29,6 @@ eframe = { version = "0.27.0", default-features = false, features = [
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
+screenshots = "0.8.5"
+image = "0.24"
+base64 = "0.21.5"

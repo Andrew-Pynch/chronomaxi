@@ -6,7 +6,7 @@ use crate::log::Log;
 pub struct IdleTracker {
     pub idle_threshold_ms: i64,
     pub last_mouse_position: Option<(i32, i32)>,
-    pub last_keys_pressed_count: Option<usize>,
+    pub last_keys_pressed_count: Option<i32>,
     pub last_activity_time: DateTime<Utc>,
 }
 

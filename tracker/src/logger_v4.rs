@@ -1,8 +1,3 @@
-use chrono::{Duration, Utc};
-use device_query::{DeviceQuery, MouseState};
-use std::process::Command;
-use tokio::time;
-
 use crate::{
     category::{self, Category},
     config::Configuration,
@@ -10,6 +5,14 @@ use crate::{
     idle_tracking::IdleTracker,
     log::Log,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use chrono::{Duration, Utc};
+use device_query::{DeviceQuery, MouseState};
+use image::{ImageBuffer, Rgba};
+use screenshots::Screen;
+use serde_json::json;
+use std::{env, process::Command};
+use tokio::time;
 
 /// LoggerV4 is a struct that represents the logging functionality for chronomaxi.
 /// It captures and logs user activity such as window changes, key presses, and mouse movements.
@@ -61,6 +64,104 @@ impl LoggerV4 {
             current_window_id: None,
             last_window_id: None,
         })
+    }
+
+    // Screenshots activity and classifies with openai
+    pub async fn capture_and_classify_screenshot(
+        &self,
+    ) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>> {
+        // Get all screens
+        let screens = Screen::all()?;
+
+        // Get current mouse position
+        let (mouse_x, mouse_y) = self.get_mouse_position();
+
+        // Find the screen containing the cursor
+        let target_screen = screens
+            .iter()
+            .find(|screen| {
+                let x_in_bounds = mouse_x >= screen.display_info.x as i32
+                    && mouse_x < (screen.display_info.x + screen.display_info.width as i32) as i32;
+                let y_in_bounds = mouse_y >= screen.display_info.y as i32
+                    && mouse_y < (screen.display_info.y + screen.display_info.height as i32) as i32;
+                x_in_bounds && y_in_bounds
+            })
+            .unwrap_or(&screens[0]); // Fallback to primary screen if not found
+
+        // Capture and convert to PNG
+        let image = target_screen.capture()?;
+        let width = image.width();
+        let height = image.height();
+
+        // Convert raw bytes to ImageBuffer
+        let image_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_raw(width, height, image.to_vec())
+                .ok_or("Failed to create image buffer")?;
+
+        // Encode as PNG
+        let mut png_data = Vec::new();
+        image_buffer.write_to(
+            &mut std::io::Cursor::new(&mut png_data),
+            image::ImageOutputFormat::Png,
+        )?;
+
+        // Convert PNG to base64
+        let base64_image = BASE64.encode(&png_data);
+
+        // Call OpenAI API
+        let openai_key = env::var("OPENAI_API_KEY")?;
+        let client = reqwest::Client::new();
+
+        let response = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", openai_key))
+        .json(&json!({
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Analyze this screenshot and provide a structured classification. What application/activity is shown? Include any relevant context. Format as JSON with fields: primary_application, activity_type (coding/browsing/communication/media/productivity/gaming/other), specific_activity, confidence_score (0-1)"
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:image/png;base64,{}", base64_image)
+                            }
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": 300
+        }))
+        .send()
+        .await?;
+
+        let classification = response.text().await?;
+        println!("Classification: {}", classification);
+
+        Ok((png_data, classification))
+    }
+
+    pub async fn save_screenshot_and_classification(
+        &mut self,
+        screenshot: Vec<u8>,
+        classification: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Here you would save both the screenshot and its classification
+        // This is a placeholder - implement based on your storage needs
+        let screenshot_path = format!("screenshots/{}.png", timestamp.timestamp());
+        std::fs::create_dir_all("screenshots")?;
+        std::fs::write(&screenshot_path, screenshot)?;
+
+        // Save classification alongside
+        let classification_path = format!("screenshots/{}.json", timestamp.timestamp());
+        std::fs::write(classification_path, classification)?;
+
+        Ok(())
     }
 
     /// Runs the logging process continuously.
@@ -156,15 +257,16 @@ impl LoggerV4 {
     /// A `Result` indicating success or an error if capturing the new log fails.
     pub fn end_current_log(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // update keys pressed with most recent count before insert
-        let keys_pressed_count = self.get_keys_pressed_count();
+        let keys_pressed_count = self.get_keys_pressed_count() as i32; // Convert to i32
         if let Some(log) = self.current_log.as_mut() {
             log.keys_pressed_count = Some(keys_pressed_count);
         }
 
-        // calculate duration and end 08:24
+        // Set end time and calculate duration
+        let current_time = Utc::now();
         if let Some(log) = self.current_log.as_mut() {
-            log.log_end_time_utc = Some(Utc::now());
-            log.duration_ms = log.get_log_duration_ms();
+            log.end_time_minutes = Some(Log::get_minutes_since_epoch(current_time));
+            log.duration_minutes = log.get_duration_minutes();
         }
 
         // insert
@@ -189,12 +291,41 @@ impl LoggerV4 {
 
         let elapsed_time = Utc::now() - self.last_bulk_insert_time;
         if elapsed_time >= Duration::seconds(self.config.stats_every_n_seconds) {
-            let insert_result = self.db.bulk_insert_logs(&self.logs).await;
+            // First insert logs to get the ID of the last log
+            if let Ok(Some(last_log_id)) = self.db.bulk_insert_logs(&self.logs).await {
+                // Take screenshot and classify
+                if let Ok((screenshot, classification)) =
+                    self.capture_and_classify_screenshot().await
+                {
+                    let timestamp = Utc::now();
+                    let screenshot_path = format!("screenshots/{}.png", timestamp.timestamp());
 
-            if let Err(e) = insert_result {
-                println!("Error inserting logs: {:?}", e);
-            } else {
+                    // Save the screenshot file
+                    if let Err(e) = std::fs::create_dir_all("screenshots") {
+                        println!("Error creating screenshots directory: {:?}", e);
+                    }
+                    // actually save the screenshot file
+                    else if let Err(e) = std::fs::write(&screenshot_path, screenshot) {
+                        println!("Error saving screenshot: {:?}", e);
+                    } else {
+                        // Insert the classification record
+                        if let Err(e) = self
+                            .db
+                            .insert_screenshot_classification(
+                                &last_log_id,
+                                &screenshot_path,
+                                &classification,
+                            )
+                            .await
+                        {
+                            println!("Error saving classification: {:?}", e);
+                        }
+                    }
+                }
+
                 println!("Inserted {} logs", self.logs.len());
+            } else {
+                println!("Error inserting logs");
             }
 
             self.logs.clear();
@@ -233,7 +364,7 @@ impl LoggerV4 {
             .unwrap_or((None, None));
 
         let (mouse_x, mouse_y) = self.get_mouse_position();
-        let keys_pressed_count = Some(self.get_keys_pressed_count());
+        let keys_pressed_count = Some(self.get_keys_pressed_count() as i32); // Convert to i32
 
         let category = self.get_category(
             &current_program_name,
@@ -241,25 +372,28 @@ impl LoggerV4 {
             current_browser_title.as_deref(),
             current_browser_site_name.as_deref(),
         );
-        let mouse_movement_mm = self.get_mouse_movement_mm();
+
+        let current_time = Utc::now();
+        let mouse_movement_mm = self.get_mouse_movement_mm() as i32; // Convert to i32
 
         let mut log = Log {
+            id: None,
             current_window_id: Some(current_window_id),
             current_program_process_name: Some(current_program_process_name),
             current_program_name: Some(current_program_name),
             current_browser_title: current_browser_title,
             current_mouse_position: Some((mouse_x, mouse_y)),
-            duration_ms: None,
+            created_at_minutes: Some(Log::get_minutes_since_epoch(current_time)),
+            start_time_minutes: Some(Log::get_minutes_since_epoch(current_time)),
+            end_time_minutes: None,
+            duration_minutes: None,
             keys_pressed_count,
-            created_at: Some(Utc::now()),
-            log_start_time_utc: Some(Utc::now()),
-            log_end_time_utc: None,
-            is_idle: false,
             category: Some(category),
-            mouse_movement_mm: Some(mouse_movement_mm as f64),
+            mouse_movement_mm: Some(mouse_movement_mm),
             left_click_count: Some(0),
             right_click_count: Some(0),
             middle_click_count: Some(0),
+            is_idle: false,
         };
         log.is_idle = self.idle_tracker.is_idle(&log);
 
@@ -426,10 +560,10 @@ impl LoggerV4 {
     ///
     /// # Returns
     /// A `usize` representing the count of keys pressed.
-    pub fn get_keys_pressed_count(&mut self) -> usize {
+    pub fn get_keys_pressed_count(&mut self) -> i32 {
         let keys_pressed_count = self.device_state.get_keys().len();
 
-        return keys_pressed_count;
+        return keys_pressed_count as i32;
     }
 
     /// Retrieves the category of the current activity.

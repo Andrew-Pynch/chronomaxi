@@ -1,46 +1,53 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
   log      = ["query"]
 }
 
 datasource db {
-  // provider = "postgresql"
-  // url      = env("DATABASE_URL")
-  // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below
-  // Further reading: 
-  // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema
-  // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string
   provider = "sqlite"
   url      = "file:./db.sqlite"
 }
 
 model Log {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  durationMs  Int
-
-  category    String
-
-  isIdle      Boolean
-  deviceName  String?
-  windowId    String
-  programProcessName String
-  programName String
-  browserTitle String?
-  keysPressedCount Int?
-
-  // new stats
-  mouseMovementInMM Float?
-  leftClickCount    Int?
-  rightClickCount   Int?
-  middleClickCount  Int?
+  id                    String  @id @default(cuid())
+  createdAtMinutes     BigInt  
+  startTimeMinutes     BigInt  
+  endTimeMinutes       BigInt  
+  durationMinutes      Int     
+  category             String
+  isIdle               Boolean
+  deviceName           String?
+  windowId             String?
+  programProcessName   String?
+  programName          String?
+  browserTitle         String?
+  keysPressedCount     Int?    
+  mouseMovementInMM    Int?    
+  leftClickCount       Int?    
+  rightClickCount      Int?    
+  middleClickCount     Int?    
+  // Add relation to ScreenshotClassification
+  screenshotClassification ScreenshotClassification?
 
   @@index([isIdle])
   @@index([windowId])
+  @@index([createdAtMinutes]) 
 }
 
+model ScreenshotClassification {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  screenshotPath    String   // Path to the saved screenshot file
+  primaryApplication String
+  activityType      String   // Enum? (coding/browsing/communication/media/productivity/gaming/other)
+  specificActivity  String
+  confidenceScore   Float
+  rawResponse       String   // Store full JSON response from OpenAI
+  // Link to the last log in the batch when this screenshot was taken
+  log              Log      @relation(fields: [logId], references: [id])
+  logId            String   @unique // One-to-one relationship with Log
+
+  @@index([createdAt])
+  @@index([activityType])
+  @@index([primaryApplication])
+}

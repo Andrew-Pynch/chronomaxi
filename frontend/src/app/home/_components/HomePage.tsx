@@ -12,15 +12,6 @@ type Props = {
 
 const HomePage = ({ initialData }: Props) => {
     const [data, setData] = useState(initialData);
-    const { data: activityData } = api.activity.getAll.useQuery(undefined, {
-        refetchInterval: 180000,
-    });
-    useEffect(() => {
-        if (activityData) {
-            setData(activityData);
-        }
-    }, [activityData]);
-
     return (
         <div>
             <div className="flex flex-row space-x-4">

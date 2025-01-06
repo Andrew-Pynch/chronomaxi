@@ -8,21 +8,22 @@ export type GetActivityData = Awaited<
 >;
 
 export const getActivityDataForCurrentUser = async () => {
-    // only last 24 hours
-    const showActivityAfterDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // convert 24 hours ago to minutes since epoch
+    const currentMinutesSinceEpoch = Math.floor(Date.now() / (60 * 1000));
+    const minutesPer24Hours = 24 * 60;
+    const showActivityAfterMinutes = currentMinutesSinceEpoch - minutesPer24Hours;
 
     const logs = await db.log.findMany({
         where: {
             isIdle: false,
-            createdAt: {
-                gte: showActivityAfterDate,
+            createdAtMinutes: {
+                gte: showActivityAfterMinutes,
             },
         },
         orderBy: {
-            createdAt: "asc",
+            createdAtMinutes: "asc",
         },
     });
-
     const logStats = LogHelpers.getStatsForLogs(logs);
     return logStats;
 };

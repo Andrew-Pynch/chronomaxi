@@ -16,7 +16,7 @@ impl Configuration {
 
         Ok(Self {
             log_interval_seconds: 1,
-            stats_every_n_seconds: 30,
+            stats_every_n_seconds: 300,
             log_iteration_pause_ms: 100,
             database_url: env::var("DATABASE_URL").ok(),
         })

@@ -96,7 +96,7 @@ const Charts = ({ data }: Props) => {
             <ResponsiveContainer width="100%" height={400}>
                 <PieChart>
                     <Pie
-                        data={Object.entries(data.acivityPerProgramToday).map(
+                        data={Object.entries(data.activityPerProgramToday).map(
                             ([program, { duration }]) => ({
                                 program,
                                 duration,
@@ -110,7 +110,7 @@ const Charts = ({ data }: Props) => {
                         fill="#8884d8"
                         label={(entry) => entry.program}
                     >
-                        {Object.entries(data.acivityPerProgramToday).map(
+                        {Object.entries(data.activityPerProgramToday).map(
                             ([program, { duration }], index) => (
                                 <Cell
                                     key={`cell-${index}`}
