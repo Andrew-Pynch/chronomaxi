@@ -1,0 +1,13 @@
+[Unit]
+Description=Chrono Maxi Web Frontend
+After=network.target
+
+[Service]
+ExecStart=/home/andrew/.bun/bin/bun run start
+WorkingDirectory=/${chronomaxi_installation_directory}/chronomaxi/frontend
+Environment="SKIP_ENV_VALIDATION=1" "PORT=3001" "NODE_ENV=production"
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
