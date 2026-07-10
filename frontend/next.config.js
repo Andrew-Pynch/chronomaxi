@@ -5,15 +5,6 @@
 await import("./src/env.js");
 
 /** @type {import("next").NextConfig} */
-const config = {
-    async rewrites() {
-        return [
-            {
-                source: "/",
-                destination: "/home",
-            },
-        ];
-    },
-};
+const config = {};
 
 export default config;

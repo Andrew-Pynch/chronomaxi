@@ -1,0 +1,96 @@
+# chronomaxi self-hosted Convex — big-bertha
+# Backend and dashboard are released in lockstep from the get-convex/convex-backend
+# monorepo. Pinned by IMAGE DIGEST (not the "precompiled-YYYY-MM-DD-<sha>" GitHub
+# release-tag naming, which does NOT correspond 1:1 to ghcr.io image tags -- verified
+# against the live registry during local validation, ghcr.io/get-convex/convex-backend
+# and convex-dashboard are tagged by full git commit SHA + "latest", not by the
+# "precompiled-..." release name). Digest below resolved from :latest at validation
+# time (2026-07-10); re-verify and re-pin deliberately on upgrades — never track
+# :latest directly in production (a digest pin is strictly more reproducible than a
+# release-tag pin would have been anyway).
+
+services:
+  postgres:
+    image: postgres:17
+    # For byte-exact reproducibility, capture and pin the resolved digest once validated:
+    #   docker pull postgres:17 && docker inspect --format='{{index .RepoDigests 0}}' postgres:17
+    # then replace the tag above with postgres:17@sha256:<digest>.
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=convex
+      - POSTGRES_PASSWORD=${CONVEX_PG_PASSWORD:?set in .env, do not commit}
+      - POSTGRES_DB=chronomaxi_prod   # must equal INSTANCE_NAME below with '-' -> '_'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U convex -d chronomaxi_prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    image: ghcr.io/get-convex/convex-backend@sha256:104b8bc70e29b31fa4a57551596090bfc9eedc3d1f27fd4b8cd8d0e782b9b070
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3210}:3210"
+      - "${SITE_PROXY_PORT:-3211}:3211"
+    volumes:
+      # Still required even with Postgres backing documents/indexes: this volume holds
+      # modules, exports, and (unless S3_STORAGE_* is set) file storage + search indexes.
+      - data:/convex/data
+    environment:
+      - INSTANCE_NAME=chronomaxi-prod
+      - INSTANCE_SECRET=${CONVEX_INSTANCE_SECRET:?set in .env, do not commit; openssl rand -hex 32}
+      - POSTGRES_URL=postgresql://convex:${CONVEX_PG_PASSWORD}@postgres:5432
+      - DO_NOT_REQUIRE_SSL=1   # same-host/tailnet-only Postgres link; do not set if Postgres is remote
+      - CONVEX_CLOUD_ORIGIN=${CONVEX_CLOUD_ORIGIN:-http://big-bertha:3210}
+      - CONVEX_SITE_ORIGIN=${CONVEX_SITE_ORIGIN:-http://big-bertha:3211}
+      - APPLICATION_MAX_CONCURRENT_MUTATIONS=${APPLICATION_MAX_CONCURRENT_MUTATIONS:-32}
+      - APPLICATION_MAX_CONCURRENT_QUERIES=${APPLICATION_MAX_CONCURRENT_QUERIES:-32}
+      - APPLICATION_MAX_CONCURRENT_V8_ACTIONS=${APPLICATION_MAX_CONCURRENT_V8_ACTIONS:-16}
+      - APPLICATION_MAX_CONCURRENT_NODE_ACTIONS=${APPLICATION_MAX_CONCURRENT_NODE_ACTIONS:-16}
+      - DOCUMENT_RETENTION_DELAY=${DOCUMENT_RETENTION_DELAY:-172800}
+      - RUST_LOG=${RUST_LOG:-info}
+      - DISABLE_METRICS_ENDPOINT=${DISABLE_METRICS_ENDPOINT:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:3210/version
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  dashboard:
+    image: ghcr.io/get-convex/convex-dashboard@sha256:60b04b339d6cd6623057b03e5275329a20011051907ec5e689a38a401cfdc409
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-6791}:6791"
+    environment:
+      - NEXT_PUBLIC_DEPLOYMENT_URL=${NEXT_PUBLIC_DEPLOYMENT_URL:-http://big-bertha:3210}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Prevents /convex/data/storage/exports from growing unbounded — Convex does not
+  # auto-prune export artifacts (community-confirmed:
+  # github.com/orenaksakal/convex-self-hosted-backups). Keeps only the last 3 days'
+  # worth on the container; the authoritative retained copies live on big-ron (see
+  # backup runbook) and any S3-compatible bucket you configure.
+  export-cleanup:
+    image: alpine:latest
+    restart: unless-stopped
+    volumes:
+      - data:/convex/data
+    entrypoint: /bin/sh
+    command: -c 'while true; do find /convex/data/storage/exports -mtime +3 -type f -delete; sleep 86400; done'
+
+volumes:
+  data:
+  pgdata:

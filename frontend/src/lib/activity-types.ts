@@ -1,12 +1,18 @@
-// Shared contract between the server data layer (logHelpers/actions) and the UI.
-// Server produces exactly this shape; components consume exactly this shape.
+// Shared contract between the Convex dashboard query (convex/dashboard.ts,
+// getDashboard, imported in DashboardShell.tsx as
+// `../../../../convex/_generated/api`) and the UI. Field names/units MUST
+// stay byte-identical to convex/dashboard.ts's validators
+// (dailySummaryValidator etc); DashboardData below is also the prop type
+// every dashboard child component (StatRow, Charts, DashboardHeader) uses.
 
 export type DailySummary = {
-    /** Local date key, e.g. "2026-07-09" */
+    /** Local date key, e.g. "2026-07-09" (America/Chicago) */
     date: string;
     /** Short display label, e.g. "Wed 7/9" */
     label: string;
     totalHours: number;
+    humanHours: number;
+    agentHours: number;
     keystrokes: number;
     leftClickCount: number;
     rightClickCount: number;
@@ -27,6 +33,8 @@ export type CategoryStat = {
     durationHours: number;
     /** 0-100 */
     percentage: number;
+    humanHours: number;
+    agentHours: number;
 };
 
 export type HourlyStat = {
@@ -36,9 +44,11 @@ export type HourlyStat = {
     label: string;
     keystrokes: number;
     activeMinutes: number;
+    humanMinutes: number;
+    agentMinutes: number;
 };
 
-export type GetActivityData = {
+export type DashboardData = {
     /** Last 7 calendar days (local), ascending, zero-filled for empty days */
     days: DailySummary[];
     /** Today's totals (local calendar day) */
@@ -51,4 +61,6 @@ export type GetActivityData = {
     categoriesToday: CategoryStat[];
     /** ISO timestamp of computation */
     generatedAt: string;
+    /** IANA timezone used for all bucketing, e.g. "America/Chicago" */
+    timezone: string;
 };

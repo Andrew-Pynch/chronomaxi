@@ -2,33 +2,318 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-    :root {
-        color-scheme: dark;
-    }
+/* ==========================================================================
+   NERV design system tokens (canonical: wiki/pages/design-system.md)
+   ========================================================================== */
+:root {
+    /* Backgrounds */
+    --bg-void: #000000;
+    --bg-base: #0a0a0f;
+    --bg-surface: #111118;
+    --bg-elevated: #1a1a24;
+    --bg-overlay: rgba(10, 10, 15, 0.85);
 
-    .light {
-        color-scheme: light;
-    }
+    /* Grid & rulers (fixed, theme-independent) */
+    --grid-line: rgba(255, 255, 255, 0.06);
+    --grid-strong: rgba(255, 255, 255, 0.12);
+    --grid-tick: rgba(255, 255, 255, 0.25);
+    --grid-axis: rgba(255, 255, 255, 0.4);
 
-    html {
-        min-height: 100%;
-        background: #09090b;
-    }
+    /* Text */
+    --fg1: #e8e8f0;
+    --fg2: #8888a0;
+    --fg-muted: #555566;
+    --fg-inverse: #0a0a0f;
 
-    body {
-        min-height: 100%;
-        background: #09090b;
-    }
+    /* Status */
+    --status-danger: #ff1a1a;
+    --status-danger-dark: #991111;
+    --status-caution: #ffaa00;
+    --status-ok: #00cc66;
+    --status-info: #4488ff;
 
-    ::selection {
-        background: rgba(129, 140, 248, 0.32);
-        color: #ffffff;
+    /* Hazard stripe pairs */
+    --hazard-ok-a: #22bb44;
+    --hazard-ok-b: #111118;
+    --hazard-danger-a: #cc2200;
+    --hazard-danger-b: #ddaa00;
+
+    /* Fonts (next/font CSS variables, kit fallback stacks) */
+    --font-display: var(--font-archivo-black), "Archivo Black", Impact, sans-serif;
+    --font-body: var(--font-space-mono), "Space Mono", monospace;
+    --font-data: var(--font-share-tech-mono), "Share Tech Mono", monospace;
+    --font-data-alt: var(--font-orbitron), "Orbitron", sans-serif;
+    --font-jp: var(--font-noto-sans-jp), "Noto Sans JP", sans-serif;
+
+    /* Type scale: 10/12/14/16/20/28/32px, data 32px, mega 48px */
+    --text-2xs: 10px;
+    --text-xs: 12px;
+    --text-sm: 14px;
+    --text-base: 16px;
+    --text-lg: 20px;
+    --text-xl: 28px;
+    --text-data: 32px;
+    --text-mega: 48px;
+
+    /* Tracking */
+    --track-tight: -0.01em;
+    --track-body: 0.04em;
+    --track-label: 0.08em;
+    --track-display: 0.12em;
+
+    /* Radius: 0 / 2px / 3px max */
+    --radius-none: 0px;
+    --radius-sm: 2px;
+    --radius-md: 3px;
+
+    /* Borders */
+    --border-thin: 1px;
+    --border-med: 2px;
+    --border-thick: 3px;
+
+    /* Space scale */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --space-8: 64px;
+
+    /* Motion */
+    --ease-nerv: cubic-bezier(0.22, 1, 0.36, 1);
+    --duration-scanline: 8s;
+    --duration-pulse: 2s;
+    --duration-blink: 1s;
+    --duration-cascade: 600ms;
+    --duration-stagger: 60ms;
+    --duration-flicker: 100ms;
+
+    /* Accent triad default: nerv theme (also set explicitly below so an
+       explicit data-theme="nerv" always matches the pre-hydration default) */
+    --primary: #ff8800;
+    --primary-muted: #cc6600;
+    --primary-glow: rgba(255, 136, 0, 0.15);
+    --secondary: #00ddaa;
+    --secondary-muted: #009977;
+    --secondary-glow: rgba(0, 221, 170, 0.15);
+    --tertiary: #ff3366;
+    --tertiary-muted: #cc2255;
+
+    color-scheme: dark;
+}
+
+/* ==========================================================================
+   Theme presets -- swap ONLY the accent triad, selected via data-theme on
+   <html>, persisted in localStorage under "chronomaxi-theme".
+   ========================================================================== */
+[data-theme="nerv"] {
+    --primary: #ff8800;
+    --primary-muted: #cc6600;
+    --primary-glow: rgba(255, 136, 0, 0.15);
+    --secondary: #00ddaa;
+    --secondary-muted: #009977;
+    --secondary-glow: rgba(0, 221, 170, 0.15);
+    --tertiary: #ff3366;
+    --tertiary-muted: #cc2255;
+}
+
+[data-theme="magi"] {
+    --primary: #00aaff;
+    --primary-muted: #0088cc;
+    --primary-glow: rgba(0, 170, 255, 0.15);
+    --secondary: #88ff00;
+    --secondary-muted: #6dcc00;
+    --secondary-glow: rgba(136, 255, 0, 0.15);
+    --tertiary: #ff00aa;
+    --tertiary-muted: #cc0088;
+}
+
+[data-theme="seele"] {
+    --primary: #cc44ff;
+    --primary-muted: #a336cc;
+    --primary-glow: rgba(204, 68, 255, 0.15);
+    --secondary: #ff4466;
+    --secondary-muted: #cc3652;
+    --secondary-glow: rgba(255, 68, 102, 0.15);
+    --tertiary: #ffaa00;
+    --tertiary-muted: #cc8800;
+}
+
+[data-theme="terminal"] {
+    --primary: #00ff88;
+    --primary-muted: #00cc6d;
+    --primary-glow: rgba(0, 255, 136, 0.15);
+    --secondary: #00e5ff;
+    --secondary-muted: #00b7cc;
+    --secondary-glow: rgba(0, 229, 255, 0.15);
+    --tertiary: #ff006e;
+    --tertiary-muted: #cc0058;
+}
+
+/* ==========================================================================
+   Base reset. The dashboard scrolls -- never set overflow:hidden here.
+   ========================================================================== */
+html {
+    min-height: 100%;
+    background: var(--bg-base);
+}
+
+body {
+    min-height: 100%;
+    background: var(--bg-base);
+    color: var(--fg1);
+    font-family: var(--font-body);
+    letter-spacing: var(--track-body);
+    font-variant-numeric: tabular-nums;
+}
+
+::selection {
+    background: var(--primary-glow);
+    color: var(--fg1);
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--grid-strong);
+    border-radius: var(--radius-sm);
+}
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--grid-strong) transparent;
+}
+
+/* ==========================================================================
+   Animation keyframes (kit Motion scale)
+   ========================================================================== */
+@keyframes nerv-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
     }
 }
 
-@layer components {
-    .chrono-card {
-        @apply rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow-xl shadow-black/20;
+@keyframes nerv-pulse-dot {
+    0%,
+    100% {
+        box-shadow: 0 0 4px currentColor;
     }
+    50% {
+        box-shadow:
+            0 0 12px currentColor,
+            0 0 24px currentColor;
+    }
+}
+
+@keyframes nerv-blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
+}
+
+@keyframes nerv-scanline {
+    0% {
+        transform: translateY(-100%);
+    }
+    100% {
+        transform: translateY(100%);
+    }
+}
+
+@keyframes nerv-cascade {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes nerv-flicker {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}
+
+/* ==========================================================================
+   NERV utility classes (kit Implementation tab)
+   ========================================================================== */
+
+/* Static CRT scanline texture overlay -- pointer-events-none, layered over
+   whatever it decorates via position:relative on the parent + absolute here. */
+.nerv-scanlines {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.15) 2px,
+        rgba(0, 0, 0, 0.15) 4px
+    );
+}
+
+/* Animated scanning beam sweep, opt-in via .animate-nerv-scanline on the
+   element that should host it (relative + overflow-hidden parent). */
+.animate-nerv-scanline {
+    animation: nerv-scanline var(--duration-scanline) linear infinite;
+}
+
+/* Grid background at 40px with "+" tick marks at every intersection. */
+.nerv-grid {
+    background-color: var(--bg-base);
+    background-image:
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M20 17v6M17 20h6' stroke='rgba(255,255,255,0.25)' stroke-width='1'/%3E%3C/svg%3E");
+    background-size: 40px 40px;
+    background-position:
+        0 0,
+        0 0,
+        -20px -20px;
+}
+
+/* Hazard stripe footer, default "ok" (green/void) colorway. */
+.nerv-hazard {
+    height: 3px;
+    background: repeating-linear-gradient(
+        90deg,
+        var(--hazard-ok-a) 0px,
+        var(--hazard-ok-a) 8px,
+        var(--hazard-ok-b) 8px,
+        var(--hazard-ok-b) 16px
+    );
+}
+
+.nerv-hazard-danger {
+    height: 3px;
+    background: repeating-linear-gradient(
+        90deg,
+        var(--hazard-danger-a) 0px,
+        var(--hazard-danger-a) 8px,
+        var(--hazard-danger-b) 8px,
+        var(--hazard-danger-b) 16px
+    );
 }

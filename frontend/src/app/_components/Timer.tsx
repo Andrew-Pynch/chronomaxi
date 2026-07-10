@@ -1,14 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { CountdownCircleTimer } from "react-countdown-circle-timer";
-import { useTimerStore } from "../../store/timerStore";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "./shadcn/Tooltip";
+import { Panel } from "~/components/nerv";
+import { cn } from "~/lib/utils";
 
 const clampTimerValue = (value: string) => {
     const parsedValue = Number.parseInt(value, 10);
@@ -31,32 +26,18 @@ const formatTime = (time: number) => {
         .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 };
 
-const Timer = () => {
-    const {
-        isFirstLoad,
-        setDuration,
-        setIsFirstLoad,
-        setIsRunning,
-        setPreviousDuration,
-        setTimeRemaining,
-    } = useTimerStore();
+const inputClass =
+    "w-full border border-grid-strong bg-void px-3 py-2 font-data text-sm tabular-nums text-fg-1 outline-none transition-colors duration-150 ease-nerv placeholder:text-fg-muted focus:border-primary";
 
+const Timer = () => {
     const [hours, setHours] = useState(0);
     const [seconds, setSeconds] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [key, setKey] = useState(0);
+    const isFirstLoad = useRef(true);
 
     const duration = Math.max(hours * 3600 + seconds, 0);
     const canStart = duration > 0 && !isPlaying;
-
-    useEffect(() => {
-        setDuration(duration);
-        setTimeRemaining(duration);
-    }, [duration, setDuration, setTimeRemaining]);
-
-    useEffect(() => {
-        setIsRunning(isPlaying);
-    }, [isPlaying, setIsRunning]);
 
     const sendNotification = () => {
         if ("Notification" in window && Notification.permission === "granted") {
@@ -67,7 +48,7 @@ const Timer = () => {
             "Notification" in window &&
             Notification.permission !== "denied"
         ) {
-            Notification.requestPermission().then((permission) => {
+            void Notification.requestPermission().then((permission) => {
                 if (permission === "granted") {
                     new Notification("Timer expired", {
                         body: "Your focus block has reached zero.",
@@ -78,12 +59,9 @@ const Timer = () => {
     };
 
     const startTimer = () => {
-        if (!canStart) {
-            return;
+        if (canStart) {
+            setIsPlaying(true);
         }
-
-        setPreviousDuration(duration);
-        setIsPlaying(true);
     };
 
     const stopTimer = () => {
@@ -94,57 +72,49 @@ const Timer = () => {
         setHours(0);
         setSeconds(0);
         setIsPlaying(false);
-        setTimeRemaining(0);
-        setKey((prevKey) => prevKey + 1);
+        setKey((previousKey) => previousKey + 1);
     };
 
     return (
-        <aside className="self-start rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl shadow-black/20 backdrop-blur xl:row-span-2">
-            <TooltipProvider>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <button
-                            type="button"
-                            className="text-left text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-zinc-500 outline-none transition hover:text-zinc-300 focus-visible:text-zinc-200"
-                        >
-                            Focus timer
-                        </button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs border border-zinc-800 bg-zinc-950 text-zinc-300 shadow-2xl shadow-black/40">
-                        <p className="text-sm leading-5">
-                            Set a focused work block. When it reaches zero,
-                            move to the next task or take a break.
-                        </p>
-                    </TooltipContent>
-                </Tooltip>
-            </TooltipProvider>
+        <Panel
+            title="Focus Timer"
+            titleJp="集中タイマー"
+            id="PANEL-201"
+            className="self-start xl:row-span-2"
+        >
+            <svg width="0" height="0" aria-hidden className="absolute">
+                <defs>
+                    <linearGradient id="timerRingStroke" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" style={{ stopColor: "var(--primary)" }} />
+                        <stop offset="100%" style={{ stopColor: "var(--secondary)" }} />
+                    </linearGradient>
+                </defs>
+            </svg>
 
-            <div className="mt-5 flex justify-center">
+            <div className="flex justify-center">
                 <CountdownCircleTimer
                     key={key}
                     isPlaying={isPlaying}
                     duration={duration}
-                    colors="#818cf8"
-                    trailColor="#27272a"
+                    colors="url(#timerRingStroke)"
+                    trailColor="rgba(255, 255, 255, 0.08)"
                     size={172}
-                    strokeWidth={10}
-                    trailStrokeWidth={10}
-                    onUpdate={setTimeRemaining}
+                    strokeWidth={3}
+                    trailStrokeWidth={3}
                     onComplete={() => {
                         setIsPlaying(false);
-                        setTimeRemaining(0);
-                        if (!isFirstLoad) {
+                        if (!isFirstLoad.current) {
                             sendNotification();
                         }
-                        setIsFirstLoad(false);
+                        isFirstLoad.current = false;
                     }}
                 >
                     {({ remainingTime }) => (
                         <div className="text-center">
-                            <div className="text-2xl font-semibold tabular-nums tracking-[-0.03em] text-white">
+                            <div className="font-data text-lg tabular-nums text-fg-1">
                                 {formatTime(remainingTime)}
                             </div>
-                            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                            <div className="mt-1 font-body text-2xs uppercase tracking-nerv text-fg-muted">
                                 remaining
                             </div>
                         </div>
@@ -153,7 +123,7 @@ const Timer = () => {
             </div>
 
             <div className="mt-6 grid grid-cols-2 gap-3">
-                <label className="space-y-2 text-xs font-medium text-zinc-500">
+                <label className="space-y-2 font-body text-2xs uppercase tracking-nerv text-fg-2">
                     Hours
                     <input
                         type="number"
@@ -162,10 +132,10 @@ const Timer = () => {
                         onChange={(event) =>
                             setHours(clampTimerValue(event.target.value))
                         }
-                        className="w-full rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-sm tabular-nums text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-indigo-400/70 focus:ring-2 focus:ring-indigo-500/20"
+                        className={inputClass}
                     />
                 </label>
-                <label className="space-y-2 text-xs font-medium text-zinc-500">
+                <label className="space-y-2 font-body text-2xs uppercase tracking-nerv text-fg-2">
                     Seconds
                     <input
                         type="number"
@@ -174,7 +144,7 @@ const Timer = () => {
                         onChange={(event) =>
                             setSeconds(clampTimerValue(event.target.value))
                         }
-                        className="w-full rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-sm tabular-nums text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-indigo-400/70 focus:ring-2 focus:ring-indigo-500/20"
+                        className={inputClass}
                     />
                 </label>
             </div>
@@ -184,7 +154,10 @@ const Timer = () => {
                     type="button"
                     onClick={startTimer}
                     disabled={!canStart}
-                    className="rounded-xl bg-indigo-500 px-3 py-2 text-sm font-medium text-white shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
+                    className={cn(
+                        "border border-primary bg-primary px-3 py-2 font-body text-2xs uppercase tracking-nerv text-fg-inverse transition-opacity duration-150 ease-nerv",
+                        "disabled:cursor-not-allowed disabled:border-grid-strong disabled:bg-transparent disabled:text-fg-muted",
+                    )}
                 >
                     Start
                 </button>
@@ -192,19 +165,22 @@ const Timer = () => {
                     type="button"
                     onClick={stopTimer}
                     disabled={!isPlaying}
-                    className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-700 hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+                    className={cn(
+                        "border border-grid-strong px-3 py-2 font-body text-2xs uppercase tracking-nerv text-fg-2 transition-colors duration-150 ease-nerv hover:border-primary hover:text-primary",
+                        "disabled:cursor-not-allowed disabled:text-fg-muted disabled:hover:border-grid-strong disabled:hover:text-fg-muted",
+                    )}
                 >
                     Pause
                 </button>
                 <button
                     type="button"
                     onClick={resetTimer}
-                    className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-700 hover:text-white"
+                    className="border border-grid-strong px-3 py-2 font-body text-2xs uppercase tracking-nerv text-fg-2 transition-colors duration-150 ease-nerv hover:border-primary hover:text-primary"
                 >
                     Reset
                 </button>
             </div>
-        </aside>
+        </Panel>
     );
 };
 

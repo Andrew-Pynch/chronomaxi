@@ -1,0 +1,19 @@
+{
+    "name": "chronomaxi-migration",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "import": "bun run import.ts",
+        "verify": "bun run verify.ts",
+        "fixture": "bun run fixtures/generate-fixture.ts"
+    },
+    "dependencies": {
+        "convex": "^1.42.1"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "bun-types": "^1.3.14",
+        "typescript": "^7.0.2"
+    }
+}

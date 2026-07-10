@@ -6,6 +6,10 @@ After=network.target graphical-session.target
 ExecStart=/${chronomaxi_installation_directory}/chronomaxi/tracker/target/release/backend
 WorkingDirectory=/${chronomaxi_installation_directory}/chronomaxi/tracker
 Environment="RUST_BACKTRACE=1"
+Environment="CHRONOMAXI_INGEST_URL=${chronomaxi_ingest_url}"
+Environment="CHRONOMAXI_INGEST_SECRET=${chronomaxi_ingest_secret}"
+Environment="CHRONOMAXI_ACTOR=${chronomaxi_actor}"
+Environment="CHRONOMAXI_DEVICE_NAME=${chronomaxi_device_name}"
 Restart=always
 RestartSec=10
 

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    chronomaxi-tracker LaunchAgent template (macOS, e.g. lil-timmy).
+
+    Per-user LaunchAgent, not a LaunchDaemon: AX/WindowServer access and the
+    Accessibility/Input Monitoring permission dialogs both require running
+    inside the user's Aqua GUI session (gui/<uid> domain), which a
+    LaunchDaemon (root, system domain) never has.
+
+    ${...} tokens mirror the chronomaxi-tracker.service placeholder
+    convention and must be substituted before install; this file is never
+    deployed as-is. CHRONOMAXI_INGEST_SECRET is a real secret -- it MUST be
+    filled in out of band at install time, never committed with a real
+    value.
+
+    Install (after substitution):
+        mkdir -p ~/Library/Logs/chronomaxi-tracker ~/Library/LaunchAgents
+        cp com.pynchlabs.chronomaxi-tracker.plist ~/Library/LaunchAgents/
+        launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pynchlabs.chronomaxi-tracker.plist
+        launchctl enable gui/$(id -u)/com.pynchlabs.chronomaxi-tracker
+
+    Restart after a rebuild:
+        launchctl kickstart -k gui/$(id -u)/com.pynchlabs.chronomaxi-tracker
+
+    Uninstall:
+        launchctl bootout gui/$(id -u)/com.pynchlabs.chronomaxi-tracker
+        rm ~/Library/LaunchAgents/com.pynchlabs.chronomaxi-tracker.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pynchlabs.chronomaxi-tracker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/${chronomaxi_installation_directory}/chronomaxi/tracker/target/release/backend</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/${chronomaxi_installation_directory}/chronomaxi/tracker</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_BACKTRACE</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>CHRONOMAXI_INGEST_URL</key>
+        <string>${chronomaxi_ingest_url}</string>
+        <key>CHRONOMAXI_INGEST_SECRET</key>
+        <string>${chronomaxi_ingest_secret}</string>
+        <key>CHRONOMAXI_ACTOR</key>
+        <string>${chronomaxi_actor}</string>
+        <key>CHRONOMAXI_DEVICE_NAME</key>
+        <string>${chronomaxi_device_name}</string>
+    </dict>
+
+    <!-- RunAtLoad: start on login/bootstrap. KeepAlive only restarts on a
+         crash (non-zero exit), never after our own graceful SIGTERM (exit
+         0) shutdown -- mirrors chronomaxi-tracker.service's Restart=always
+         + RestartSec=10 cadence via ThrottleInterval below. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Background: no real-time scheduling priority needed, more
+         battery-friendly on a laptop than an Interactive-class agent. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>${chronomaxi_home_directory}/Library/Logs/chronomaxi-tracker/out.log</string>
+    <key>StandardErrorPath</key>
+    <string>${chronomaxi_home_directory}/Library/Logs/chronomaxi-tracker/err.log</string>
+</dict>
+</plist>
