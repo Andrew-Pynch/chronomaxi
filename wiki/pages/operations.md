@@ -65,8 +65,8 @@ cold archive rule, pre-import snapshot, `verify.ts`):
 
 ## Morning-deferred list
 
-Everything below is explicitly out of scope for this rollout and requires
-lil-timmy, which is not to be touched:
+Items 1-4 require lil-timmy, which is not to be touched this rollout.
+Items 5-6 are big-ron items blocked on sudo/user interaction:
 
 1. **timmy tracker install** — bring up the macOS LaunchAgent
    (`deploy/launchd/com.pynchlabs.chronomaxi-tracker.plist`, `gui/<uid>`
@@ -84,3 +84,13 @@ lil-timmy, which is not to be touched:
    `WM_CLASS` values Hyprland/X11 report) against a live timmy tracker, and
    install the session-attribution hooks
    (`deploy/attribution/install.sh`) on timmy's zsh/ssh config.
+5. **big-ron Wayland evdev input capture** — keystroke/click counts on
+   Hyprland need read access to `/dev/input/event*` (root:input 660; user
+   `andrew` is not in the `input` group). One sudo command
+   (`sudo usermod -aG input andrew` + relogin, or a udev ACL rule), then a
+   tracker capture-backend addition. Deferred per user's flag-for-morning
+   instruction.
+6. **big-ron Brave homepage/bookmark** — Brave was running during rollout;
+   `chronomaxi-brave-configure.timer` fires daily at 07:45 and applies the
+   change on the first morning Brave is closed (see
+   `~/.config/chronomaxi/brave-pending.md`).
