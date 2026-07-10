@@ -26,7 +26,13 @@ SCHEMA.md for the rules that keep this file current.
 
 ## Entities
 
-*(none yet, filed as the wiki grows: tracker, frontend, prisma, systemd-service, etc.)*
+- [pages/historical-data.md](pages/historical-data.md) — cross-host inventory of
+  every chronomaxi data source before the central Convex migration: big-bertha's
+  84,025,654-row/23.2GB authoritative archive (hostname-continuous across
+  `andrew-MS-7B86` -> `big-bertha`), big-ron's 9,049-row current DB (demo seed + live),
+  empty decoy paths on big-ron/lil-timmy, and the inaccessible/stale legacy Railway
+  Postgres source. Table of rows/date-ranges/hours, exact DB paths, and migration
+  implications (dedup key, streaming import, device identity normalization).
 
 ## Concepts
 
@@ -36,3 +42,5 @@ SCHEMA.md for the rules that keep this file current.
 
 - [raw/2026-07-09-before-after-capture-notes.md](raw/2026-07-09-before-after-capture-notes.md)
   — capture notes backing pages/2026-07-09-ui-overhaul.md.
+- [raw/2026-07-09-data-archaeology-capture.md](raw/2026-07-09-data-archaeology-capture.md)
+  — verbatim SQLite scan output backing pages/historical-data.md.

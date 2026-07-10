@@ -60,7 +60,9 @@ user systemd service via `chronomaxi-tracker.service` (repo root).
 `bulk_insert_sqlite` / `bulk_insert_postgres` (`db.rs:53`, `db.rs:88`). In the current
 frontend-local dev setup the sink is `frontend/prisma/db.sqlite`, the same database the
 Next.js app reads from directly, there is no separate ingestion API between tracker and
-frontend.
+frontend. See [historical-data.md](historical-data.md) for the actual size and row
+count of this file on each host (big-bertha's copy alone is ~23.2GB / 84M rows) and the
+cross-host migration inventory ahead of the move to central Convex.
 
 ## 3. Schema: prisma
 

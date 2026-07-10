@@ -13,8 +13,9 @@ a `git worktree` on port 3002). "After" is the uncommitted working-tree state, t
 running live at `http://localhost:3001/home` (port 3001). Both were pointed at the same
 `frontend/prisma/db.sqlite` snapshot so the underlying activity data is identical; only
 the code changed. See [architecture.md](architecture.md) for the full post-overhaul
-pipeline writeup; this page focuses on what was broken, what it looked like, and what
-fixed it.
+pipeline writeup and [historical-data.md](historical-data.md) for how large that
+`db.sqlite` snapshot actually is on big-bertha (~23.2GB / 84M rows); this page focuses
+on what was broken, what it looked like, and what fixed it.
 
 Full self-contained comparison exhibit (screenshots, architecture diagrams, bug table):
 [assets/ui-overhaul-comparison.html](../assets/ui-overhaul-comparison.html). Opens

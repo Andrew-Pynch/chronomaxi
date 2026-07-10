@@ -22,3 +22,15 @@ wiki/pages/2026-07-09-ui-overhaul.md, and wiki/assets/{before-dashboard-full.png
 before-emptytable-closeup.png, after-dashboard-full.png, after-statcards-closeup.png,
 ui-overhaul-comparison.html}. Replaced the Events placeholder in INDEX.md with the real
 entry and added a Sources (raw/) entry for the capture notes.
+
+## [2026-07-09] ingest | historical data archaeology filed by data archaeology workstream
+
+ArchiveArchaeology captured wiki/raw/2026-07-09-data-archaeology-capture.md
+(verbatim SQLite scan output from RonArchaeology/TimmyArchaeology/MigrationDesign:
+big-bertha's 84,025,654-row/23.2GB archive, big-ron's 9,049-row current DB, lil-timmy
+and Railway status) and synthesized wiki/pages/historical-data.md (source table with
+rows/date-ranges/hours, big-bertha `andrew-MS-7B86`/`big-bertha` hostname continuity,
+Railway marked inaccessible/stale not lost, migration implications: composite dedup
+key, streaming/batched import, device identity normalization). Cross-linked
+pages/architecture.md (storage section) and pages/2026-07-09-ui-overhaul.md (intro)
+to the new page. Added Entities and Sources (raw/) entries in INDEX.md.
