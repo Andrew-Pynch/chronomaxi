@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>chronomaxi: UI Overhaul, Before vs After</title>
+<style>
+  :root {
+    --bg: #0b0c0f;
+    --panel: #15171c;
+    --panel-2: #1b1e25;
+    --border: #2a2e37;
+    --text: #e6e8ec;
+    --muted: #9aa1ad;
+    --red: #ef5350;
+    --red-dim: #3a1e1e;
+    --green: #66d19e;
+    --green-dim: #16302a;
+    --accent: #8b7cf6;
+    --amber: #e8b84b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  header {
+    padding: 40px 48px 24px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #14151a 0%, var(--bg) 100%);
+  }
+  header .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  header h1 {
+    margin: 0 0 8px;
+    font-size: 30px;
+    font-weight: 700;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    max-width: 900px;
+    font-size: 14.5px;
+  }
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 40px 48px 80px;
+  }
+  section { margin-bottom: 56px; }
+  h2 {
+    font-size: 20px;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--accent);
+  }
+  .section-sub {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 0 0 22px;
+  }
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 1000px) {
+    .compare-grid { grid-template-columns: 1fr; }
+  }
+  .shot-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .shot-card .tag {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    font-size: 12.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .shot-card.before .tag { background: var(--red-dim); color: var(--red); }
+  .shot-card.after .tag { background: var(--green-dim); color: var(--green); }
+  .shot-card .tag .badge {
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+  .shot-card img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-top: 1px solid var(--border);
+    background: #000;
+  }
+  .shot-card figcaption {
+    padding: 12px 16px 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .shot-card figcaption ul { margin: 6px 0 0; padding-left: 18px; }
+  .shot-card figcaption li { margin-bottom: 3px; }
+  .closeups {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 24px;
+  }
+  @media (max-width: 1000px) {
+    .closeups { grid-template-columns: 1fr; }
+  }
+
+  /* architecture diagrams */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 1000px) {
+    .arch-grid { grid-template-columns: 1fr; }
+  }
+  .arch-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .arch-card h3 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .arch-card.before h3 { color: var(--red); }
+  .arch-card.after h3 { color: var(--green); }
+  .arch-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 16px;
+  }
+  .arch-node {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .arch-node .node-title {
+    font-weight: 700;
+    font-size: 13.5px;
+    margin-bottom: 3px;
+  }
+  .arch-node .node-detail {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .arch-card.before .arch-node.broken { border-color: #4a2323; background: var(--red-dim); }
+  .arch-card.before .arch-node.broken .node-title { color: var(--red); }
+  .arch-card.after .arch-node.fixed { border-color: #1f4438; background: var(--green-dim); }
+  .arch-card.after .arch-node.fixed .node-title { color: var(--green); }
+  .arch-arrow {
+    align-self: center;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  /* bug table */
+  table.bugtable {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  table.bugtable th {
+    text-align: left;
+    background: var(--panel-2);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 11px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.bugtable td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.bugtable tr:last-child td { border-bottom: none; }
+  table.bugtable td.bug-name { font-weight: 600; color: var(--amber); white-space: nowrap; }
+  table.bugtable code {
+    background: #10131a;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 12px;
+    color: #c9d1ff;
+  }
+
+  footer {
+    padding: 24px 48px 48px;
+    color: var(--muted);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">chronomaxi wiki - visual diff</div>
+  <h1>UI Overhaul: Before vs After</h1>
+  <p>
+    Pre-overhaul code is git commit <code>085ec7a</code> (rendered on port 3002 from a throwaway
+    <code>git worktree</code>). Post-overhaul code is the current uncommitted working tree
+    (rendered on port 3001). Same sqlite database, same viewport (1600x1560), same day of activity
+    data for both captures.
+  </p>
+</header>
+
+<main>
+
+  <section>
+    <h2><span class="num">1</span> Dashboard, side by side</h2>
+    <p class="section-sub">Full-page captures of <code>/home</code> on each app, taken back to back.</p>
+
+    <div class="compare-grid">
+      <figure class="shot-card before">
+        <div class="tag">Before (085ec7a, port 3002) <span class="badge">frontend/src/app/home</span></div>
+        <img src="before-dashboard-full.png" alt="Before: broken dashboard with empty activity table and dead line charts">
+        <figcaption>
+          Unstyled default layout. Notable breakage visible in this single screenshot:
+          <ul>
+            <li>"Activity Summary" table renders headers only, zero rows in <code>&lt;tbody&gt;</code></li>
+            <li>"Hours of Activity per Day" line chart is a single straight segment between two points</li>
+            <li>"Keystrokes per Day" line chart is the same dead two-point ramp</li>
+            <li>Work Chunking Stopwatch shows a static <code>00:00:00</code>, no dashboard chrome around any widget</li>
+          </ul>
+        </figcaption>
+      </figure>
+
+      <figure class="shot-card after">
+        <div class="tag">After (uncommitted, port 3001) <span class="badge">frontend/src/app/home</span></div>
+        <img src="after-dashboard-full.png" alt="After: redesigned dashboard with stat cards, working charts, donut and focus timer">
+        <figcaption>
+          Full redesign against the typed <code>GetActivityData</code> contract:
+          <ul>
+            <li>Six stat cards (active time, keystrokes, clicks, mouse distance, top program, top category) each with a 7-day delta</li>
+            <li>"Active Hours, Last 7 Days" area chart populated across all 7 days</li>
+            <li>"Keystrokes Per Hour Today" bar chart with 24 hourly buckets</li>
+            <li>Program bars, category donut, and a working Focus Timer widget, all dark-themed</li>
+          </ul>
+        </figcaption>
+      </figure>
+    </div>
+
+    <div class="closeups">
+      <figure class="shot-card before">
+        <div class="tag">Before, closeup <span class="badge">empty tbody</span></div>
+        <img src="before-emptytable-closeup.png" alt="Closeup of the before app's empty Activity Summary table headers with no data rows">
+        <figcaption>The Activity Summary header row renders, but the table body is hardcoded empty in <code>ActivitySummary.tsx</code>; no map over any data at all.</figcaption>
+      </figure>
+      <figure class="shot-card after">
+        <div class="tag">After, closeup <span class="badge">stat card row</span></div>
+        <img src="after-statcards-closeup.png" alt="Closeup of the after app's six stat cards row">
+        <figcaption>Same underlying log data, now aggregated server-side into typed <code>DailySummary</code>/<code>ProgramStat</code>/<code>CategoryStat</code> shapes and rendered as stat cards with 7-day-average deltas.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">2</span> Architecture: before vs after</h2>
+    <p class="section-sub">Same three-tier shape (tracker, sqlite, frontend), but the contract between tiers and the tracker's own capture loop changed completely.</p>
+
+    <div class="arch-grid">
+      <div class="arch-card before">
+        <h3>Before</h3>
+        <div class="arch-flow">
+          <div class="arch-node broken">
+            <div class="node-title">tracker (Rust)</div>
+            <div class="node-detail">X11-only via <code>xdotool</code>/<code>xprop</code>; <code>Command</code> output <code>.unwrap()</code>'d directly, panics on any non-X11 session; ends and re-inserts a log row every 100ms tick regardless of window change (~10 rows/sec)</div>
+          </div>
+          <div class="arch-arrow">&#8595;</div>
+          <div class="arch-node">
+            <div class="node-title">sqlite (db.sqlite via Prisma)</div>
+            <div class="node-detail">Flooded with near-duplicate rows every tick</div>
+          </div>
+          <div class="arch-arrow">&#8595;</div>
+          <div class="arch-node broken">
+            <div class="node-title">logHelpers.ts (untyped)</div>
+            <div class="node-detail"><code>getSummaryData()</code> reduces logs into a <code>Record&lt;date, {...}&gt;</code> then destructures top-level fields that were never on that shape, all <code>undefined</code>. Return type inferred, not contract-checked.</div>
+          </div>
+          <div class="arch-arrow">&#8595;</div>
+          <div class="arch-node broken">
+            <div class="node-title">Charts.tsx / ActivitySummary.tsx</div>
+            <div class="node-detail"><code>Object.entries()</code> called on fields that are already arrays; Activity Summary <code>&lt;tbody&gt;</code> hardcoded empty; stopwatch input handlers unguarded <code>parseInt</code></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arch-card after">
+        <h3>After</h3>
+        <div class="arch-flow">
+          <div class="arch-node fixed">
+            <div class="node-title">tracker (Rust)</div>
+            <div class="node-detail">Runtime-selected <code>CaptureBackend</code>: Hyprland IPC (<code>hyprctl</code>) when <code>HYPRLAND_INSTANCE_SIGNATURE</code>/Wayland is present, X11 (<code>xdotool</code>) otherwise; no panics; span-based aggregation checkpoints every 40s (<code>CHECKPOINT_SPAN_SECONDS</code>), capped at 60s (~1 row/40s)</div>
+          </div>
+          <div class="arch-arrow">&#8595;</div>
+          <div class="arch-node">
+            <div class="node-title">sqlite (db.sqlite via Prisma)</div>
+            <div class="node-detail">Same schema, orders of magnitude fewer writes per session</div>
+          </div>
+          <div class="arch-arrow">&#8595;</div>
+          <div class="arch-node fixed">
+            <div class="node-title">GetActivityData (lib/activity-types.ts)</div>
+            <div class="node-detail">Single typed contract: <code>days</code>, <code>today</code>, <code>hourlyToday</code>, <code>programsToday</code>, <code>categoriesToday</code>, <code>generatedAt</code>. Server produces exactly this shape, UI consumes exactly this shape.</div>
+          </div>
+          <div class="arch-arrow">&#8595;</div>
+          <div class="arch-node fixed">
+            <div class="node-title">tRPC router + server actions</div>
+            <div class="node-detail"><code>activityRouter.getAll</code> and <code>getActivityDataForCurrentUser()</code> both return the typed contract; no ad hoc reshaping in components</div>
+          </div>
+          <div class="arch-arrow">&#8595;</div>
+          <div class="arch-node fixed">
+            <div class="node-title">Redesigned dashboard</div>
+            <div class="node-detail">Stat cards, populated area/bar charts, category donut, working Focus Timer, dark theme throughout</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">3</span> Bug fix table</h2>
+    <p class="section-sub">Concrete symptoms traced to root cause in the pre-overhaul code, and how the overhaul closes each one.</p>
+
+    <table class="bugtable">
+      <thead>
+        <tr>
+          <th>Bug</th>
+          <th>Symptom</th>
+          <th>Root cause (085ec7a)</th>
+          <th>Fix (current)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="bug-name">Empty tbody</td>
+          <td>Activity Summary table shows headers, zero data rows</td>
+          <td><code>ActivitySummary.tsx</code> renders a hardcoded empty <code>&lt;tbody&gt;&lt;/tbody&gt;</code>, no map over any prop</td>
+          <td>Replaced the table with typed stat cards bound to <code>data.today</code> / <code>data.days</code></td>
+        </tr>
+        <tr>
+          <td class="bug-name">getSummaryData undefined</td>
+          <td>Any consumer of summary totals gets <code>undefined</code></td>
+          <td><code>logHelpers.getSummaryData()</code> reduces logs into a <code>Record&lt;date, {...}&gt;</code>, then destructures top-level <code>totalHours</code>/<code>keystrokes</code>/etc off that record, fields that never existed at that level</td>
+          <td><code>getStatsForLogs</code> now returns the typed <code>GetActivityData</code> shape directly; no intermediate untyped reduce-then-destructure step</td>
+        </tr>
+        <tr>
+          <td class="bug-name">Object.entries() on array</td>
+          <td>Bar chart series keys become numeric string indices instead of program names</td>
+          <td><code>Charts.tsx</code> calls <code>Object.entries(data.keystrokeFrequencyPerHourToday)</code> where that field is already an array (built via <code>.map()</code> in logHelpers)</td>
+          <td><code>hourlyToday: HourlyStat[]</code> is consumed directly as an array, no entries/reshape step</td>
+        </tr>
+        <tr>
+          <td class="bug-name">Timer NaN</td>
+          <td>Stopwatch hour/second inputs can show <code>NaN</code></td>
+          <td><code>Timer.tsx</code> input <code>onChange={(e) =&gt; setHours(parseInt(e.target.value))}</code>, unguarded <code>parseInt</code> on a controlled input, empty/invalid input yields <code>NaN</code> straight into state</td>
+          <td>New Focus Timer widget parses with explicit numeric guards and safe defaults before arithmetic</td>
+        </tr>
+        <tr>
+          <td class="bug-name">Port mismatch</td>
+          <td>Auth callback / redirect assumptions point at the wrong origin</td>
+          <td><code>.env.example</code> hardcodes <code>NEXTAUTH_URL="http://localhost:3000"</code>, default Next.js dev port, while the app is conventionally run on 3001</td>
+          <td><code>.env.example</code> updated to <code>NEXTAUTH_URL="http://localhost:3001"</code>, matching the actual dev port</td>
+        </tr>
+        <tr>
+          <td class="bug-name">No Wayland support</td>
+          <td>Tracker panics immediately outside an X11 session</td>
+          <td>Only backend is <code>xdotool</code>/<code>xprop</code> shelled out via <code>Command</code>, output <code>.unwrap()</code>'d with no error handling</td>
+          <td><code>CaptureBackend</code> enum with <code>Hyprland</code> and <code>X11</code> variants, selected at runtime via <code>HYPRLAND_INSTANCE_SIGNATURE</code>/<code>XDG_SESSION_TYPE</code>, Hyprland path uses <code>hyprctl activewindow -j</code></td>
+        </tr>
+        <tr>
+          <td class="bug-name">Row flood</td>
+          <td>sqlite grows fast, every query scans far more rows than the actual activity warrants</td>
+          <td><code>save_to_db_every_n_seconds()</code> calls <code>end_current_log().unwrap()</code> on every 100ms loop tick regardless of window change, ending and restarting a log row each time (~10 rows/sec)</td>
+          <td>Span aggregation: a log only ends on window change, idle change, a 60s hard cap, or a 40s checkpoint (<code>MAX_SPAN_SECONDS</code> / <code>CHECKPOINT_SPAN_SECONDS</code>), roughly 1 row per 40s of continuous activity</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+</main>
+
+<footer>
+  Captured 2026-07-09. Before: commit <code>085ec7a</code> via <code>git worktree</code>, port 3002.
+  After: uncommitted working tree, port 3001. Same viewport (1600x1560), same underlying sqlite data.
+</footer>
+
+</body>
+</html>
