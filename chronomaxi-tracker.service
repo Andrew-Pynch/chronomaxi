@@ -1,6 +1,6 @@
 [Unit]
 Description=Chrono Maxi Time Tracker
-After=network.target
+After=network.target graphical-session.target
 
 [Service]
 ExecStart=/${chronomaxi_installation_directory}/chronomaxi/tracker/target/release/backend

@@ -18,32 +18,13 @@ Use it to generate stats like the real time stats that chronomaxi powers on my p
 ## Prerequisites
 
 - Rust programming language
-- Node.js and npm (or Yarn/Bun)
+- Node.js and Bun
 - SQLite
-- xdotool (for Linux)
+- Window detection:
+  - Hyprland (Wayland): uses `hyprctl`, no extra install
+  - X11: `xdotool` and `xprop` (`sudo pacman -S xdotool xorg-xprop` / `sudo apt-get install xdotool x11-utils`)
 
-## Getting Started
-
-1. **Clone the repository:**
-
-```sh
-git clone https://github.com/Andrew-Pynch/time-tracker.git
-cd time-tracker
-```
-
-2. **Install xdotool**
-
-linux
-
-```sh
-sudo apt-get xdotool
-```
-
-macos
-
-```sh
-brew install xdotool
-```
+Note: on Wayland, keystroke and click counts are not captured (no global input access); window/program/category time tracking works fully.
 
 3. **Run the tracker / web interface**
    
@@ -105,9 +86,12 @@ journalctl -u chronomaxi-tracker.service
 
 ```sh
 cd frontend
-cp .env.example .env.local_secrets
+cp .env.example .env
+bun install
 bun run local
 ```
+
+Optional: seed a week of fake activity data for development with `bun run seed`.
 
 ### Second Terminal (tracker)
 

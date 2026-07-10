@@ -18,8 +18,9 @@ export const env = createEnv({
             // This makes Vercel deployments not fail if you don't set NEXTAUTH_URL
             // Since NextAuth.js automatically uses the VERCEL_URL if present.
             (str) => process.env.VERCEL_URL ?? str,
-            // VERCEL_URL doesn't include `https` so it cant be validated as a URL
-            process.env.VERCEL ? z.string() : z.string().url(),
+            // Auth is unused in this single-user local app; keep optional so an
+            // empty/missing NEXTAUTH_URL never blocks boot.
+            process.env.VERCEL ? z.string() : z.string().url().optional(),
         ),
     },
 

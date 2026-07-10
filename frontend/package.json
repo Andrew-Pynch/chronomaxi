@@ -10,12 +10,10 @@
         "postinstall": "prisma generate",
         "lint": "next lint",
         "start": "next start",
-        "update:db": "npx prisma generate && npx prisma db push",
-        "env:local": "rm -rf .env && rm -rf .env.local && cp .env.local_secrets .env.local && cp .env.local_secrets .env",
-        "env:dev": "rm -rf .env && rm -rf .env.local && cp .env.development_secrets .env && cp .env.development_secrets .env.local",
-        "local": "yarn env:local && yarn update:db && next dev --turbo --port 3001",
-        "dev": "yarn env:dev && yarn update:db && next dev --turbo",
-        "update:db": "npx prisma generate && npx prisma db push"
+        "update:db": "prisma generate && prisma db push",
+        "seed": "bun run prisma/seed.ts",
+        "local": "bun run update:db && next dev --turbo --port 3001",
+        "dev": "bun run update:db && next dev --turbo --port 3001"
     },
     "dependencies": {
         "@auth/prisma-adapter": "^1.4.0",

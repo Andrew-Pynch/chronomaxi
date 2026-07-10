@@ -1,15 +1,15 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { LogHelpers } from "~/server/api/routers/helpers/logHelpers";
+import type { GetActivityData as ActivityData } from "~/lib/activity-types";
+import { getStatsForLogs } from "~/server/api/routers/helpers/logHelpers";
 import { db } from "~/server/db";
 
-export type GetActivityData = Awaited<
-    ReturnType<typeof getActivityDataForCurrentUser>
->;
+export type { GetActivityData } from "~/lib/activity-types";
 
-export const getActivityDataForCurrentUser = async () => {
-    // only last 24 hours
-    const showActivityAfterDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+export const getActivityDataForCurrentUser = async (): Promise<ActivityData> => {
+    const showActivityAfterDate = new Date();
+    showActivityAfterDate.setHours(0, 0, 0, 0);
+    showActivityAfterDate.setDate(showActivityAfterDate.getDate() - 6);
 
     const logs = await db.log.findMany({
         where: {
@@ -23,7 +23,7 @@ export const getActivityDataForCurrentUser = async () => {
         },
     });
 
-    const logStats = LogHelpers.getStatsForLogs(logs);
+    const logStats = getStatsForLogs(logs);
     return logStats;
 };
 
