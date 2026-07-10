@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# deploy/chronomaxi-ctl -- small control wrapper for the local validation /
+# standby Convex compose stack (deploy/docker-compose.yml + deploy/.env).
+#
+# Symlinked to ~/.local/bin/chronomaxi-ctl by deploy/attribution/install.sh's
+# sibling setup step (see deploy/standby-restore.sh's install notes) so it's
+# on PATH. Source of truth lives here in the repo; edit this file, not the
+# symlink target.
+#
+# Subcommands:
+#   local-up    bring the compose stack up if it's down (idempotent no-op
+#               if already running)
+#   local-down  docker compose down -- stops containers, KEEPS volumes
+#               (no -v; never drops pgdata/data by default)
+#   status      compose ps + backend health + latest backup on disk
+#
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+COMPOSE_FILE="$REPO_DIR/deploy/docker-compose.yml"
+COMPOSE_ENV_FILE="$REPO_DIR/deploy/.env"
+BACKUP_DIR="${CHRONOMAXI_BACKUP_DIR:-$HOME/backups/chronomaxi}"
+
+log() { printf '[chronomaxi-ctl] %s\n' "$1"; }
+
+compose() {
+    docker compose -f "$COMPOSE_FILE" --env-file "$COMPOSE_ENV_FILE" "$@"
+}
+
+usage() {
+    printf 'usage: chronomaxi-ctl {local-up|local-down|status}\n'
+}
+
+cmd_local_up() {
+    if [ -z "$(compose ps --status running -q backend 2>/dev/null)" ]; then
+        log "bringing up local validation stack"
+        compose up -d
+    else
+        log "local validation stack already up"
+    fi
+}
+
+cmd_local_down() {
+    log "stopping local validation stack (volumes kept)"
+    compose down
+}
+
+cmd_status() {
+    printf '== compose services (%s) ==\n' "$COMPOSE_FILE"
+    compose ps
+    echo
+    backend_id=$(compose ps -q backend 2>/dev/null || true)
+    if [ -n "$backend_id" ]; then
+        health=$(docker inspect -f '{{.State.Health.Status}}' "$backend_id" 2>/dev/null || echo "unknown")
+        printf '== backend health: %s ==\n' "$health"
+    else
+        printf '== backend health: not running ==\n'
+    fi
+    echo
+    printf '== latest backup in %s ==\n' "$BACKUP_DIR"
+    latest=$(find "$BACKUP_DIR" -maxdepth 1 -name '*.zip' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+    if [ -n "$latest" ]; then
+        ls -la "$latest"
+    else
+        echo "(none yet)"
+    fi
+    echo
+    printf '== chronomaxi-standby-restore.timer ==\n'
+    systemctl --user list-timers chronomaxi-standby-restore.timer --no-pager 2>/dev/null || echo "(timer not installed)"
+}
+
+case "${1:-}" in
+    local-up) cmd_local_up ;;
+    local-down) cmd_local_down ;;
+    status) cmd_status ;;
+    -h|--help) usage ;;
+    "") usage >&2; exit 1 ;;
+    *) echo "unknown subcommand: $1" >&2; usage >&2; exit 1 ;;
+esac
