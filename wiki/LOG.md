@@ -34,3 +34,29 @@ Railway marked inaccessible/stale not lost, migration implications: composite de
 key, streaming/batched import, device identity normalization). Cross-linked
 pages/architecture.md (storage section) and pages/2026-07-09-ui-overhaul.md (intro)
 to the new page. Added Entities and Sources (raw/) entries in INDEX.md.
+
+## [2026-07-10] ingest | central architecture + operations pages filed for ROLLOUT
+
+SkillsWiki rewrote wiki/pages/architecture.md in place for the board-approved
+ROLLOUT-phase central model (trackers-with-spools on 3 machines -> HTTP ingest
+-> self-hosted Convex+Postgres docker on big-bertha -> materialized aggregates
+-> NERV Next.js dashboard on big-bertha; big-ron cold nightly-snapshot standby;
+dual-mechanism SSH session attribution; production URLs; cold archive rule;
+HARD ORDERING GATE), citing tracker/src/{spool,ingest,config,logger_v4}.rs,
+convex/{schema,http,spans,dashboard,lib/aggregation,lib/deviceAlias}.ts,
+deploy/{docker-compose.yml,.env.example,BACKUP-RUNBOOK.md,attribution/README.md},
+migration/README.md, and frontend/src/{components/ConvexClientProvider.tsx,
+app/_components/DashboardShell.tsx}. Filed new wiki/pages/operations.md
+(per-machine service inventory, backup/restore pointers, morning-deferred
+timmy list). Added a Files section to wiki/pages/design-system.md listing
+frontend/src/components/nerv/* (it lacked one). Updated INDEX.md: rewrote the
+architecture.md summary, added an Operations section for the new page. Applied
+deploy/attribution/skill-updates.md's three diffs to
+~/.agents/skills/tailnet/SKILL.md (big-bertha row corrected to verified facts:
+Ubuntu 24.04.4 LTS, active GNOME-on-X11 local seat, docker host, central
+chronomaxi/Convex host, 100.100.118.109; new "Session attribution" section;
+frontmatter description addition) and created
+~/.agents/skills/chronomaxi-attribution/SKILL.md (cmx| tag grammar,
+CMX_AGENT_NAME convention, fail-open semantics) verbatim from that proposal —
+both files live outside this repo (~/.agents), not committed here, per board
+row 8 approval.

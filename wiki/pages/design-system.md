@@ -76,3 +76,23 @@ cascade 600ms, stagger 60ms, flicker 100ms, ease `cubic-bezier(0.22,1,0.36,1)`.
   Agent actors: `--status-caution`.
 - Favicon/branding: hourglass-bars mark on `#0a0a0f`, `--primary`/`--secondary`,
   sharp corners.
+
+## Files
+
+Final component implementation, `frontend/src/components/nerv/`:
+
+- `index.ts` — barrel export.
+- `Panel.tsx` — kit panel chrome (corner `+` glyph, display-font title + JP
+  sublabel, panel id tag, hazard stripe footer).
+- `StatReadout.tsx` — `.readout` stat value component (tabular-nums,
+  `--font-data`), used for dashboard stat cards.
+- `StatusBadge.tsx` — pulsing-dot status badge (uppercase EN + JP, 1px
+  status-color border).
+- `AlertBanner.tsx` — 3px left-border alert banner (label + JP + message).
+- `DataTable.tsx` — data table (header row `--primary` uppercase
+  `--font-data`, status-colored cells, `--grid-line` row separators).
+- `status.ts` — shared status color/token mapping consumed by
+  `StatusBadge.tsx`/`AlertBanner.tsx`/`DataTable.tsx`.
+
+Consumed by `frontend/src/app/_components/DashboardShell.tsx` and its
+`charts/` siblings — see [architecture.md](architecture.md#6-serving-nerv-nextjs-dashboard-big-bertha-only).

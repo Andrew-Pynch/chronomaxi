@@ -10,10 +10,27 @@ SCHEMA.md for the rules that keep this file current.
 
 ## Architecture
 
-- [pages/architecture.md](pages/architecture.md) — post-overhaul pipeline: rust tracker
-  (hyprctl/xdotool backends, span aggregation) -> sqlite (frontend/prisma/db.sqlite) ->
-  prisma -> next.js server actions/tRPC -> recharts dashboard. File-path citations
-  throughout.
+- [pages/architecture.md](pages/architecture.md) — central chronomaxi architecture
+  (ROLLOUT phase, board-approved): trackers-with-spools on 3 machines -> HTTP
+  ingest (bearer secret) -> self-hosted Convex + Postgres docker on big-bertha ->
+  materialized aggregates (dayAgg/hourAgg/programAgg/categoryAgg) -> NERV Next.js
+  dashboard (convex-native, no Prisma/tRPC). Covers the HARD ORDERING GATE
+  (migration must verify green before tracker cutover), big-ron's cold
+  nightly-snapshot standby role, the dual-mechanism SSH session-attribution
+  design, and production URLs. File-path citations throughout. Supersedes the
+  prior per-host pipeline description (rust tracker -> sqlite -> prisma ->
+  next.js server actions/tRPC -> recharts), which now lives only as historical
+  context in pages/2026-07-09-ui-overhaul.md and pages/historical-data.md.
+
+## Operations
+
+- [pages/operations.md](pages/operations.md) — service inventory per machine
+  (systemd units, docker compose stacks, ports, env files, crons) for big-bertha
+  (central, production) and big-ron (pre-cutover validation stack, then
+  cold-standby), backup/restore pointers to deploy/BACKUP-RUNBOOK.md and
+  migration/README.md, and the morning-deferred list (timmy tracker install,
+  macOS build verify, Accessibility grant, timmy brave/hooks) — all explicitly
+  out of scope for this rollout per the board's lil-timmy deferral.
 
 ## Events
 
