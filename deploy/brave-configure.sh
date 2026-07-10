@@ -62,9 +62,16 @@ backup() {
 }
 
 # --- Preferences: homepage / homepage_is_newtabpage / show_home_button ----
+# NOTE: plain `// default` is unsafe for booleans here -- jq's `//`
+# operator treats a `false` LHS as absent (same as `null`), so
+# `false // true` silently evaluates to `true`. Using explicit
+# `if .foo == null then default else .foo end` instead so an on-disk
+# `false` reads back as `false`, not the fallback -- otherwise this
+# idempotency check would spuriously re-back-up and rewrite Preferences
+# on every single run once homepage_is_newtabpage is correctly `false`.
 current_homepage=$(jq -r '.homepage // ""' "$PREFS")
-current_is_ntp=$(jq -r '.homepage_is_newtabpage // true' "$PREFS")
-current_show_btn=$(jq -r '.browser.show_home_button // false' "$PREFS")
+current_is_ntp=$(jq -r 'if .homepage_is_newtabpage == null then true else .homepage_is_newtabpage end' "$PREFS")
+current_show_btn=$(jq -r 'if .browser.show_home_button == null then false else .browser.show_home_button end' "$PREFS")
 
 if [ "$current_homepage" != "$HOMEPAGE_URL" ] || [ "$current_is_ntp" != "false" ] || [ "$current_show_btn" != "true" ]; then
     backup "$PREFS"
