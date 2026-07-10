@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="16" fill="#0a0a0f"/>
+  <!-- hourglass frame -->
+  <path fill="#ff8800" d="M148 96h216c11 0 20 9 20 20s-9 20-20 20h-6v22c0 34-14 66-38 90l-8 8 8 8c24 24 38 56 38 90v22h6c11 0 20 9 20 20s-9 20-20 20H148c-11 0-20-9-20-20s9-20 20-20h6v-22c0-34 14-66 38-90l8-8-8-8c-24-24-38-56-38-90v-22h-6c-11 0-20-9-20-20s9-20 20-20zm46 40v22c0 23 9 45 26 62l36 36 36-36c17-17 26-39 26-62v-22H194z"/>
+  <!-- falling sand -->
+  <circle cx="256" cy="262" r="10" fill="#ffaa00"/>
+  <!-- lower bulb: rising bars -->
+  <g>
+    <rect x="196" y="352" width="24" height="24" fill="#cc6600"/>
+    <rect x="230" y="332" width="24" height="44" fill="#ff8800"/>
+    <rect x="264" y="312" width="24" height="64" fill="#ffaa00"/>
+    <rect x="298" y="288" width="24" height="88" fill="#00ddaa"/>
+  </g>
+</svg>
