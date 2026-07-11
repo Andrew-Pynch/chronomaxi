@@ -1,9 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { CountdownCircleTimer } from "react-countdown-circle-timer";
 import { Panel } from "~/components/nerv";
+import { api } from "~/lib/convexApi";
 import { cn } from "~/lib/utils";
+
+const MS_PER_SECOND = 1_000;
+const TICK_MS = 1_000;
 
 const clampTimerValue = (value: string) => {
     const parsedValue = Number.parseInt(value, 10);
@@ -29,15 +34,47 @@ const formatTime = (time: number) => {
 const inputClass =
     "w-full border border-grid-strong bg-void px-3 py-2 font-data text-sm tabular-nums text-fg-1 outline-none transition-colors duration-150 ease-nerv placeholder:text-fg-muted focus:border-primary";
 
+// Focus timer widget: Convex's `timerState` singleton is the ONLY source of
+// truth (durationMs, runningSince, pausedRemainingMs, updatedAt) -- every
+// open dashboard tab subscribes to the same row, so start/pause/reset from
+// any viewer converges every other viewer's countdown. Between server
+// pushes (which only happen on a mutation, not on a schedule), remaining
+// time is derived locally from `runningSince` on a 1s tick, per viewer.
 const Timer = () => {
-    const [hours, setHours] = useState(0);
-    const [seconds, setSeconds] = useState(0);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [key, setKey] = useState(0);
-    const isFirstLoad = useRef(true);
+    const timerView = useQuery(api.timer.get);
+    const start = useMutation(api.timer.start);
+    const pause = useMutation(api.timer.pause);
+    const reset = useMutation(api.timer.reset);
 
-    const duration = Math.max(hours * 3600 + seconds, 0);
-    const canStart = duration > 0 && !isPlaying;
+    const [hoursInput, setHoursInput] = useState(0);
+    const [secondsInput, setSecondsInput] = useState(0);
+    const [nowMs, setNowMs] = useState(() => Date.now());
+
+    const inputsSeededRef = useRef(false);
+    const previousRemainingMsRef = useRef<number | null>(null);
+    const notifiedForRunRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        if (inputsSeededRef.current || !timerView) return;
+        inputsSeededRef.current = true;
+        const totalSeconds = Math.round(timerView.durationMs / MS_PER_SECOND);
+        setHoursInput(Math.floor(totalSeconds / 3600));
+        setSecondsInput(totalSeconds % 3600);
+    }, [timerView]);
+
+    useEffect(() => {
+        if (!timerView?.running) return;
+        const interval = setInterval(() => setNowMs(Date.now()), TICK_MS);
+        return () => clearInterval(interval);
+    }, [timerView?.running]);
+
+    const remainingMs = useMemo(() => {
+        if (!timerView) return 0;
+        if (!timerView.running || timerView.runningSince === null) {
+            return timerView.remainingMs;
+        }
+        return Math.max(0, timerView.durationMs - (nowMs - timerView.runningSince));
+    }, [timerView, nowMs]);
 
     const sendNotification = () => {
         if ("Notification" in window && Notification.permission === "granted") {
@@ -58,30 +95,48 @@ const Timer = () => {
         }
     };
 
-    const startTimer = () => {
-        if (canStart) {
-            setIsPlaying(true);
+    // Fires once per server-visible "run" (keyed on updatedAt) the FIRST
+    // time this client observes a live >0 -> <=0 crossing while running --
+    // never on initial load of an already-expired timer (previous === null
+    // guards that), matching the original component's isFirstLoad guard.
+    useEffect(() => {
+        if (!timerView) return;
+        const previousRemainingMs = previousRemainingMsRef.current;
+        previousRemainingMsRef.current = remainingMs;
+
+        if (
+            timerView.running &&
+            remainingMs <= 0 &&
+            previousRemainingMs !== null &&
+            previousRemainingMs > 0 &&
+            notifiedForRunRef.current !== timerView.updatedAt
+        ) {
+            notifiedForRunRef.current = timerView.updatedAt;
+            sendNotification();
         }
-    };
+    }, [timerView, remainingMs]);
 
-    const stopTimer = () => {
-        setIsPlaying(false);
-    };
+    if (!timerView) {
+        return (
+            <Panel title="Focus Timer" titleJp="集中タイマー" id="PANEL-201">
+                <p className="font-body text-sm text-fg-2">Awaiting timer state...</p>
+            </Panel>
+        );
+    }
 
-    const resetTimer = () => {
-        setHours(0);
-        setSeconds(0);
-        setIsPlaying(false);
-        setKey((previousKey) => previousKey + 1);
+    const remainingSeconds = Math.ceil(remainingMs / MS_PER_SECOND);
+    const durationSeconds = Math.max(1, Math.round(timerView.durationMs / MS_PER_SECOND));
+    const canStart = !timerView.running;
+
+    const handleStart = () => {
+        const requestedSeconds = Math.max(hoursInput * 3600 + secondsInput, 0);
+        void start({
+            durationMs: requestedSeconds > 0 ? requestedSeconds * MS_PER_SECOND : undefined,
+        });
     };
 
     return (
-        <Panel
-            title="Focus Timer"
-            titleJp="集中タイマー"
-            id="PANEL-201"
-            className="self-start xl:row-span-2"
-        >
+        <Panel title="Focus Timer" titleJp="集中タイマー" id="PANEL-201">
             <svg width="0" height="0" aria-hidden className="absolute">
                 <defs>
                     <linearGradient id="timerRingStroke" x1="0" y1="0" x2="1" y2="1">
@@ -93,26 +148,20 @@ const Timer = () => {
 
             <div className="flex justify-center">
                 <CountdownCircleTimer
-                    key={key}
-                    isPlaying={isPlaying}
-                    duration={duration}
+                    key={timerView.updatedAt}
+                    isPlaying={timerView.running}
+                    duration={durationSeconds}
+                    initialRemainingTime={remainingSeconds}
                     colors="url(#timerRingStroke)"
                     trailColor="rgba(255, 255, 255, 0.08)"
                     size={172}
                     strokeWidth={3}
                     trailStrokeWidth={3}
-                    onComplete={() => {
-                        setIsPlaying(false);
-                        if (!isFirstLoad.current) {
-                            sendNotification();
-                        }
-                        isFirstLoad.current = false;
-                    }}
                 >
-                    {({ remainingTime }) => (
+                    {() => (
                         <div className="text-center">
                             <div className="font-data text-lg tabular-nums text-fg-1">
-                                {formatTime(remainingTime)}
+                                {formatTime(remainingSeconds)}
                             </div>
                             <div className="mt-1 font-body text-2xs uppercase tracking-nerv text-fg-muted">
                                 remaining
@@ -128,9 +177,9 @@ const Timer = () => {
                     <input
                         type="number"
                         min={0}
-                        value={hours}
+                        value={hoursInput}
                         onChange={(event) =>
-                            setHours(clampTimerValue(event.target.value))
+                            setHoursInput(clampTimerValue(event.target.value))
                         }
                         className={inputClass}
                     />
@@ -140,9 +189,9 @@ const Timer = () => {
                     <input
                         type="number"
                         min={0}
-                        value={seconds}
+                        value={secondsInput}
                         onChange={(event) =>
-                            setSeconds(clampTimerValue(event.target.value))
+                            setSecondsInput(clampTimerValue(event.target.value))
                         }
                         className={inputClass}
                     />
@@ -152,7 +201,7 @@ const Timer = () => {
             <div className="mt-4 grid grid-cols-3 gap-2">
                 <button
                     type="button"
-                    onClick={startTimer}
+                    onClick={handleStart}
                     disabled={!canStart}
                     className={cn(
                         "border border-primary bg-primary px-3 py-2 font-body text-2xs uppercase tracking-nerv text-fg-inverse transition-opacity duration-150 ease-nerv",
@@ -163,8 +212,8 @@ const Timer = () => {
                 </button>
                 <button
                     type="button"
-                    onClick={stopTimer}
-                    disabled={!isPlaying}
+                    onClick={() => void pause({})}
+                    disabled={!timerView.running}
                     className={cn(
                         "border border-grid-strong px-3 py-2 font-body text-2xs uppercase tracking-nerv text-fg-2 transition-colors duration-150 ease-nerv hover:border-primary hover:text-primary",
                         "disabled:cursor-not-allowed disabled:text-fg-muted disabled:hover:border-grid-strong disabled:hover:text-fg-muted",
@@ -174,7 +223,7 @@ const Timer = () => {
                 </button>
                 <button
                     type="button"
-                    onClick={resetTimer}
+                    onClick={() => void reset({})}
                     className="border border-grid-strong px-3 py-2 font-body text-2xs uppercase tracking-nerv text-fg-2 transition-colors duration-150 ease-nerv hover:border-primary hover:text-primary"
                 >
                     Reset

@@ -1,15 +1,15 @@
 "use client";
 
 import { useConvexConnectionState, useQuery } from "convex/react";
-import { api } from "../../../../convex/_generated/api";
-import { AlertBanner, Panel } from "~/components/nerv";
-import { Charts } from "./Charts";
-import { DashboardHeader } from "./DashboardHeader";
-import { StatRow } from "./StatRow";
-import Timer from "./Timer";
+import { Panel } from "~/components/nerv";
+import { api } from "~/lib/convexApi";
+import { PanelFocusProvider } from "~/lib/hotkeys/panelFocus";
+import { useDeviceFilter } from "~/lib/useDeviceFilter";
+import { DashboardContent } from "./DashboardContent";
 
 export const DashboardShell = () => {
-    const data = useQuery(api.dashboard.getDashboard);
+    const deviceFilter = useDeviceFilter();
+    const data = useQuery(api.dashboard.getDashboard, { device: deviceFilter.device });
     const connection = useConvexConnectionState();
 
     if (!data) {
@@ -27,26 +27,12 @@ export const DashboardShell = () => {
     }
 
     return (
-        <main className="nerv-grid min-h-screen px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-            <div className="mx-auto flex max-w-7xl flex-col gap-4">
-                <DashboardHeader
-                    todayLabel={data.today.label}
-                    connected={connection.isWebSocketConnected}
-                />
-                {connection.isWebSocketConnected ? null : (
-                    <AlertBanner
-                        status="danger"
-                        label="LINK LOST"
-                        labelJp="断絶"
-                        message="Connection to the chronomaxi backend was lost. Displayed data may be stale."
-                    />
-                )}
-                <StatRow data={data} />
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-                    <Charts data={data} />
-                    <Timer />
-                </section>
-            </div>
-        </main>
+        <PanelFocusProvider>
+            <DashboardContent
+                data={data}
+                connected={connection.isWebSocketConnected}
+                deviceFilter={deviceFilter}
+            />
+        </PanelFocusProvider>
     );
 };

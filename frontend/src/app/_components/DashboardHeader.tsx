@@ -1,14 +1,24 @@
 import { StatusBadge } from "~/components/nerv";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 
+export type ActiveOverride = {
+    deviceName: string;
+    actor: string;
+};
+
 type DashboardHeaderProps = {
     todayLabel: string;
     connected: boolean;
+    /** Devices with an active actorOverride row (api.actorOverride.get) --
+     * every span ingested for that device is being attributed to `actor`
+     * regardless of who's actually at the keyboard. */
+    activeOverrides: ActiveOverride[];
 };
 
 export const DashboardHeader = ({
     todayLabel,
     connected,
+    activeOverrides,
 }: DashboardHeaderProps) => (
     <header className="relative border border-grid-strong bg-surface px-5 py-5 md:px-7 md:py-6">
         <div className="nerv-hazard absolute inset-x-0 top-0" />
@@ -32,6 +42,14 @@ export const DashboardHeader = ({
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-3">
                 <ThemeSwitcher />
+                {activeOverrides.map((override) => (
+                    <StatusBadge
+                        key={override.deviceName}
+                        status="caution"
+                        label={`${override.deviceName.toUpperCase()} OVERRIDE: ${override.actor.toUpperCase()}`}
+                        labelJp="上書き中"
+                    />
+                ))}
                 <StatusBadge
                     status={connected ? "ok" : "danger"}
                     label={connected ? "SYSTEM NOMINAL" : "LINK LOST"}

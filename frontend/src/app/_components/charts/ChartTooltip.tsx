@@ -14,9 +14,18 @@ export type ChartTooltipProps = {
     active?: boolean;
     label?: string;
     payload?: TooltipPayloadEntry[];
+    /** Overrides how a numeric entry.value renders when the payload has no
+     * per-row `formattedDuration`/`percentage` (e.g. a multi-series stacked
+     * chart where every series needs its own unit, not a shared count). */
+    valueFormatter?: (value: number, entry: TooltipPayloadEntry) => string;
 };
 
-export const ChartTooltip = ({ active, label, payload }: ChartTooltipProps) => {
+export const ChartTooltip = ({
+    active,
+    label,
+    payload,
+    valueFormatter,
+}: ChartTooltipProps) => {
     if (!active || !payload?.length) {
         return null;
     }
@@ -35,7 +44,7 @@ export const ChartTooltip = ({ active, label, payload }: ChartTooltipProps) => {
                 {payload.map((entry) => {
                     const value =
                         typeof entry.value === "number"
-                            ? formatCount(entry.value)
+                            ? (valueFormatter?.(entry.value, entry) ?? formatCount(entry.value))
                             : entry.value;
                     const formattedDuration = entry.payload?.formattedDuration;
                     const percentage = entry.payload?.percentage;

@@ -10,7 +10,12 @@ const KNOWN_CATEGORY_COLOR: Record<string, string> = {
     Other: "var(--fg-muted)",
 };
 
-const FALLBACK_SERIES = [
+// Generic recharts series order per wiki/pages/design-system.md ("Charts
+// (recharts): series order --primary, --secondary, --tertiary,
+// --status-caution, --status-info"). Exported for any chart that needs a
+// theme-consistent per-series palette without semantic category names
+// (e.g. DevicesChart's one-series-per-device stack).
+export const CHART_SERIES_COLORS = [
     "var(--primary)",
     "var(--secondary)",
     "var(--tertiary)",
@@ -18,7 +23,8 @@ const FALLBACK_SERIES = [
     "var(--status-info)",
 ];
 
+export const seriesColor = (index: number): string =>
+    CHART_SERIES_COLORS[index % CHART_SERIES_COLORS.length] ?? "var(--fg-muted)";
+
 export const categoryColor = (category: string, fallbackIndex: number): string =>
-    KNOWN_CATEGORY_COLOR[category] ??
-    FALLBACK_SERIES[fallbackIndex % FALLBACK_SERIES.length] ??
-    "var(--fg-muted)";
+    KNOWN_CATEGORY_COLOR[category] ?? seriesColor(fallbackIndex);

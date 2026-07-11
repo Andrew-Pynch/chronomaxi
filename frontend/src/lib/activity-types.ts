@@ -1,7 +1,6 @@
 // Shared contract between the Convex dashboard query (convex/dashboard.ts,
-// getDashboard, imported in DashboardShell.tsx as
-// `../../../../convex/_generated/api`) and the UI. Field names/units MUST
-// stay byte-identical to convex/dashboard.ts's validators
+// getDashboard, imported everywhere via ~/lib/convexApi) and the UI. Field
+// names/units MUST stay byte-identical to convex/dashboard.ts's validators
 // (dailySummaryValidator etc); DashboardData below is also the prop type
 // every dashboard child component (StatRow, Charts, DashboardHeader) uses.
 
@@ -48,6 +47,12 @@ export type HourlyStat = {
     agentMinutes: number;
 };
 
+export type PerDeviceDay = {
+    dayKey: string;
+    deviceName: string;
+    durationMs: number;
+};
+
 export type DashboardData = {
     /** Last 7 calendar days (local), ascending, zero-filled for empty days */
     days: DailySummary[];
@@ -63,4 +68,10 @@ export type DashboardData = {
     generatedAt: string;
     /** IANA timezone used for all bucketing, e.g. "America/Chicago" */
     timezone: string;
+    /** Every deviceName with a dayAgg row in the last 7 days, sorted --
+     * drives the device filter pills. Never narrowed by `device`. */
+    devices: string[];
+    /** Full per-device breakdown across the same 7-day window as `days`,
+     * regardless of the active `device` filter -- feeds DevicesChart. */
+    perDeviceDays: PerDeviceDay[];
 };

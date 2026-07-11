@@ -10,6 +10,12 @@ export const env = createEnv({
         NODE_ENV: z
             .enum(["development", "test", "production"])
             .default("development"),
+        // "ip=name,ip=name" pairs mapping tailnet IPs to canonical device
+        // names, e.g. "100.100.118.109=big-bertha,100.x.x.x=big-ron". Used
+        // only by /api/whoami to auto-default the dashboard's device
+        // filter from the requester's X-Forwarded-For IP. Unset -> whoami
+        // always resolves to a null device (no auto-filter).
+        CHRONOMAXI_TAILNET_MAP: z.string().optional(),
     },
 
     /**
@@ -27,6 +33,7 @@ export const env = createEnv({
      */
     runtimeEnv: {
         NODE_ENV: process.env.NODE_ENV,
+        CHRONOMAXI_TAILNET_MAP: process.env.CHRONOMAXI_TAILNET_MAP,
         NEXT_PUBLIC_CONVEX_URL: process.env.NEXT_PUBLIC_CONVEX_URL,
     },
     /**

@@ -55,3 +55,41 @@ export const formatDelta = (
 
 export const isAllZero = (values: number[]): boolean =>
     values.every((value) => !Number.isFinite(value) || value <= 0);
+
+const MS_PER_SECOND = 1_000;
+const MS_PER_MINUTE = 60_000;
+const MS_PER_HOUR = 3_600_000;
+const MS_PER_DAY = 86_400_000;
+
+/** "just now" / "12s ago" / "4m ago" / "3h ago" / "2d ago", relative to
+ * `nowMs`. Used for sshSessions "started" column -- always past tense, a
+ * future timestamp (clock skew) clamps to "just now" rather than going
+ * negative. */
+export const formatRelativeTime = (timestampMs: number, nowMs: number): string => {
+    const elapsedMs = nowMs - timestampMs;
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 1000) {
+        return "just now";
+    }
+    if (elapsedMs < MS_PER_MINUTE) {
+        return `${Math.floor(elapsedMs / MS_PER_SECOND)}s ago`;
+    }
+    if (elapsedMs < MS_PER_HOUR) {
+        return `${Math.floor(elapsedMs / MS_PER_MINUTE)}m ago`;
+    }
+    if (elapsedMs < MS_PER_DAY) {
+        return `${Math.floor(elapsedMs / MS_PER_HOUR)}h ago`;
+    }
+    return `${Math.floor(elapsedMs / MS_PER_DAY)}d ago`;
+};
+
+/** "42s" / "5m" / "2h 14m" -- session/timer durations given in ms. */
+export const formatDurationMs = (durationMs: number): string => {
+    const safeMs = Number.isFinite(durationMs) ? Math.max(durationMs, 0) : 0;
+    if (safeMs < MS_PER_MINUTE) {
+        return `${Math.round(safeMs / MS_PER_SECOND)}s`;
+    }
+    const totalMinutes = Math.floor(safeMs / MS_PER_MINUTE);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours > 0 ? `${hours}h ${minutes.toString().padStart(2, "0")}m` : `${minutes}m`;
+};
