@@ -127,6 +127,14 @@ missing=""
 for var in CONVEX_SELF_HOSTED_URL CONVEX_SELF_HOSTED_ADMIN_KEY; do
     grep -qE "^${var}=.+" "$ENV_FILE" || missing="$missing $var"
 done
+FRONTEND_ENV=~/personal/chronomaxi/frontend/.env.local
+# NEXT_PUBLIC_CONVEX_URL is baked into the frontend at BUILD time (mixed-content
+# gotcha: must be the tailscale TLS proxy URL, not http://big-bertha:3210) --
+# next build reads env from frontend/, never the repo root, so it must live in
+# frontend/.env.local specifically. Absent => `bun run build` fails env
+# validation, so fail fast here with a named var instead.
+[ -f "$FRONTEND_ENV" ] || { echo "MISSING_FILE:$FRONTEND_ENV"; exit 1; }
+grep -qE "^NEXT_PUBLIC_CONVEX_URL=.+" "$FRONTEND_ENV" || missing="$missing NEXT_PUBLIC_CONVEX_URL(frontend/.env.local)"
 [ -z "$missing" ] || { echo "MISSING_VARS:$missing"; exit 1; }
 echo OK
 EOF
