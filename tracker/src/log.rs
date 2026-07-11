@@ -22,6 +22,11 @@ pub struct Log {
     pub left_click_count: Option<usize>,
     pub right_click_count: Option<usize>,
     pub middle_click_count: Option<usize>,
+    /// Terminal drill-down: the currently focused sub-program inside a
+    /// terminal-class window (e.g. "nvim", "cargo", "zsh"), resolved via
+    /// tmux (crate::tmux). `None` for non-terminal windows or when tmux
+    /// drill-down can't resolve anything (bare shell, no tmux, etc).
+    pub sub_program: Option<String>,
 
     /// "human" | "agent:<name>" -- resolved from a `cmx|actor=...` window
     /// title tag when present, else CHRONOMAXI_ACTOR, else "human".
@@ -35,7 +40,7 @@ impl fmt::Display for Log {
         let (mouse_x, mouse_y) = self.current_mouse_position.unwrap_or((0, 0));
         write!(
             f,
-            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}\nIsIdle: {:?}\n Category: {:?}\n Mouse Movement in (mm): {:?}\nLeft Clicks: {:?}\n Right Clicks: {:?}\n Middle Clicks: {:?}\nActor: {:?}",
+            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}\nIsIdle: {:?}\n Category: {:?}\n Mouse Movement in (mm): {:?}\nLeft Clicks: {:?}\n Right Clicks: {:?}\n Middle Clicks: {:?}\nSubProgram: {:?}\nActor: {:?}",
             self.current_window_id,
             self.current_program_process_name,
             self.current_program_name,
@@ -53,6 +58,7 @@ impl fmt::Display for Log {
             self.left_click_count,
             self.right_click_count,
             self.middle_click_count,
+            self.sub_program,
             self.actor
         )
     }
@@ -77,6 +83,7 @@ impl Log {
             left_click_count: None,
             right_click_count: None,
             middle_click_count: None,
+            sub_program: None,
             actor: crate::config::DEFAULT_ACTOR.to_string(),
         }
     }

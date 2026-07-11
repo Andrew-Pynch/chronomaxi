@@ -4,6 +4,8 @@ use device_query::{DeviceQuery, MouseState};
 #[cfg(target_os = "linux")]
 use serde::Deserialize;
 use std::env;
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time;
 
@@ -16,6 +18,8 @@ use crate::{
     log::Log,
     spool::Spool,
 };
+#[cfg(target_os = "linux")]
+use crate::{hypr_events, input_evdev, tmux};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CaptureBackend {
@@ -28,17 +32,38 @@ enum CaptureBackend {
 }
 
 #[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EvdevClickButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[cfg(target_os = "linux")]
 #[derive(Deserialize)]
 struct HyprActiveWindow {
     address: Option<String>,
     class: Option<String>,
     title: Option<String>,
-    #[allow(dead_code)]
+    pid: Option<i64>,
+}
+
+/// One entry of `hyprctl clients -j`, used only to resolve a focused
+/// window's pid by address on focus change -- see
+/// `LoggerV4::resolve_focus_pid`.
+#[cfg(target_os = "linux")]
+#[derive(Deserialize)]
+struct HyprClient {
+    address: Option<String>,
     pid: Option<i64>,
 }
 
 const MAX_SPAN_SECONDS: i64 = 60;
 const CHECKPOINT_SPAN_SECONDS: i64 = 40;
+/// How often logger_v4 reconciles the Hyprland event-socket pushed state
+/// against `hyprctl activewindow -j` ground truth.
+#[cfg(target_os = "linux")]
+const HYPR_RECONCILE_SECONDS: i64 = 5;
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
@@ -114,6 +139,38 @@ pub struct LoggerV4 {
     pub current_window_id: Option<String>,
     pub last_window_id: Option<String>,
     last_active_window: Option<ActiveWindow>,
+
+    // --- Linux capture extensions: evdev key/click counters, Hyprland
+    // event-socket push state, and tmux sub-program drill-down. ---
+    #[cfg(target_os = "linux")]
+    evdev_counters: Arc<input_evdev::InputCounters>,
+    #[cfg(target_os = "linux")]
+    evdev_keys_baseline: u64,
+    #[cfg(target_os = "linux")]
+    evdev_left_baseline: u64,
+    #[cfg(target_os = "linux")]
+    evdev_right_baseline: u64,
+    #[cfg(target_os = "linux")]
+    evdev_middle_baseline: u64,
+    #[cfg(target_os = "linux")]
+    hypr_watcher: Option<hypr_events::HyprEventWatcher>,
+    #[cfg(target_os = "linux")]
+    hypr_last_reconcile: chrono::DateTime<chrono::Utc>,
+    /// Address of the window `focused_window_pid` was last resolved for --
+    /// pid is only re-resolved (via `hyprctl clients -j`) when this
+    /// changes, never on every tick.
+    #[cfg(target_os = "linux")]
+    hypr_focus_address: Option<String>,
+    #[cfg(target_os = "linux")]
+    focused_window_pid: Option<i64>,
+    /// X11 mirror of the pair above, keyed by xdotool window id instead
+    /// of a Hyprland address.
+    #[cfg(target_os = "linux")]
+    x11_focus_window_id: Option<String>,
+    #[cfg(target_os = "linux")]
+    x11_focus_pid: Option<i64>,
+    #[cfg(target_os = "linux")]
+    tmux_resolver: tmux::TmuxResolver,
 }
 
 impl LoggerV4 {
@@ -145,6 +202,22 @@ impl LoggerV4 {
         #[cfg(target_os = "macos")]
         let initial_mouse_position = Some(macos_capture.mouse_position());
 
+        // Only the Hyprland backend consults these -- X11 keeps its
+        // proven device_query path, so there's no reason to spin up
+        // evdev reader threads or an event-socket subscriber on bertha.
+        #[cfg(target_os = "linux")]
+        let evdev_counters = if backend == CaptureBackend::Hyprland {
+            input_evdev::spawn()
+        } else {
+            Arc::new(input_evdev::InputCounters::default())
+        };
+        #[cfg(target_os = "linux")]
+        let hypr_watcher = if backend == CaptureBackend::Hyprland {
+            hypr_events::HyprEventWatcher::spawn()
+        } else {
+            None
+        };
+
         println!("Using {:?} capture backend", backend);
 
         Ok(LoggerV4 {
@@ -168,6 +241,31 @@ impl LoggerV4 {
             current_window_id: None,
             last_window_id: None,
             last_active_window: None,
+
+            #[cfg(target_os = "linux")]
+            evdev_counters,
+            #[cfg(target_os = "linux")]
+            evdev_keys_baseline: 0,
+            #[cfg(target_os = "linux")]
+            evdev_left_baseline: 0,
+            #[cfg(target_os = "linux")]
+            evdev_right_baseline: 0,
+            #[cfg(target_os = "linux")]
+            evdev_middle_baseline: 0,
+            #[cfg(target_os = "linux")]
+            hypr_watcher,
+            #[cfg(target_os = "linux")]
+            hypr_last_reconcile: chrono::Utc::now(),
+            #[cfg(target_os = "linux")]
+            hypr_focus_address: None,
+            #[cfg(target_os = "linux")]
+            focused_window_pid: None,
+            #[cfg(target_os = "linux")]
+            x11_focus_window_id: None,
+            #[cfg(target_os = "linux")]
+            x11_focus_pid: None,
+            #[cfg(target_os = "linux")]
+            tmux_resolver: tmux::TmuxResolver::new(),
         })
     }
 
@@ -266,6 +364,11 @@ impl LoggerV4 {
         let mouse_movement_mm = self.get_mouse_movement_mm();
         let now = Utc::now();
 
+        #[cfg(target_os = "linux")]
+        let current_sub_program = self.resolve_sub_program(&active_window);
+        #[cfg(target_os = "macos")]
+        let current_sub_program: Option<String> = None;
+
         if let Some(log) = self.current_log.as_mut() {
             log.current_mouse_position = Some(mouse_position);
             log.mouse_movement_mm = Some(log.mouse_movement_mm.unwrap_or(0.0) + mouse_movement_mm);
@@ -278,13 +381,21 @@ impl LoggerV4 {
         idle_probe.current_program_process_name = Some(active_window.program_process_name.clone());
         idle_probe.current_program_name = Some(active_window.program_name.clone());
         idle_probe.current_mouse_position = Some(mouse_position);
-        let is_idle = self.compute_is_idle(&idle_probe);
+        let is_idle = self.compute_is_idle(&idle_probe, Some(active_window.title.as_str()));
 
         let should_end_current_log = self.current_log.as_ref().is_some_and(|log| {
+            // Effective window identity for change detection is
+            // `window_id + ':' + sub_program` when the focused window is a
+            // terminal, so e.g. alacritty:nvim and alacritty:zsh split into
+            // separate spans even though the compositor window id and
+            // program-process-name never change. `current_sub_program`
+            // (and therefore `log.sub_program`) is already `None` for
+            // non-terminal windows, so this comparison is a no-op there.
             let window_changed =
                 log.current_window_id.as_deref() != Some(active_window.id.as_str())
                     || log.current_program_process_name.as_deref()
-                        != Some(active_window.program_process_name.as_str());
+                        != Some(active_window.program_process_name.as_str())
+                    || log.sub_program != current_sub_program;
             let idle_changed = log.is_idle != is_idle;
             let span_capped = log
                 .log_start_time_utc
@@ -303,6 +414,7 @@ impl LoggerV4 {
             log.current_program_process_name = Some(active_window.program_process_name);
             log.current_program_name = Some(active_window.program_name);
             log.is_idle = is_idle;
+            log.sub_program = current_sub_program;
             self.last_window_id = self.current_window_id.clone();
         }
 
@@ -313,12 +425,13 @@ impl LoggerV4 {
     /// (crate::idle_tracking). macOS uses the authoritative
     /// CGEventSourceSecondsSinceLastEventType signal instead, sharing only
     /// the configured threshold with the heuristic tracker.
-    fn compute_is_idle(&mut self, idle_probe: &Log) -> bool {
+    fn compute_is_idle(&mut self, idle_probe: &Log, window_title: Option<&str>) -> bool {
         match self.backend {
             #[cfg(target_os = "linux")]
-            CaptureBackend::Hyprland | CaptureBackend::X11 => self.idle_tracker.is_idle(idle_probe),
+            CaptureBackend::Hyprland | CaptureBackend::X11 => self.idle_tracker.is_idle(idle_probe, window_title),
             #[cfg(target_os = "macos")]
             CaptureBackend::MacOS => {
+                let _ = window_title;
                 let idle_ms = (self.macos_capture.idle_seconds() * 1000.0) as i64;
                 idle_ms >= self.idle_tracker.idle_threshold_ms
             }
@@ -398,11 +511,17 @@ impl LoggerV4 {
         let (mouse_x, mouse_y) = self.get_mouse_position();
         let keys_pressed_count = self.get_keys_pressed_count();
 
+        #[cfg(target_os = "linux")]
+        let sub_program = self.resolve_sub_program(&active_window);
+        #[cfg(target_os = "macos")]
+        let sub_program: Option<String> = None;
+
         let category = self.get_category(
             &current_program_name,
             &current_program_process_name,
             current_browser_title.as_deref(),
             current_browser_site_name.as_deref(),
+            sub_program.as_deref(),
         );
         let mouse_movement_mm = self.get_mouse_movement_mm();
         let actor = actor::resolve_actor(&active_window.title, &self.config.actor);
@@ -424,9 +543,10 @@ impl LoggerV4 {
             left_click_count: Some(0),
             right_click_count: Some(0),
             middle_click_count: Some(0),
+            sub_program,
             actor,
         };
-        log.is_idle = self.compute_is_idle(&log);
+        log.is_idle = self.compute_is_idle(&log, Some(active_window.title.as_str()));
 
         Ok(log)
     }
@@ -450,18 +570,98 @@ impl LoggerV4 {
         }
     }
 
+    /// Hyprland active-window resolution: prefers the live event-socket
+    /// push state (hypr_events.rs) over spawning `hyprctl activewindow -j`
+    /// every tick. Falls back to direct hyprctl polling when the socket
+    /// isn't connected yet or has no data (e.g. this process started
+    /// before the compositor emitted a first event).
     #[cfg(target_os = "linux")]
-    fn get_hyprland_active_window(&self) -> Option<ActiveWindow> {
+    fn get_hyprland_active_window(&mut self) -> Option<ActiveWindow> {
+        self.reconcile_hypr_state();
+
+        let pushed = self.hypr_watcher.as_ref().map(|watcher| watcher.state());
+        let Some(state) = pushed.filter(hypr_events::ActiveWindowState::has_data) else {
+            return self.get_hyprland_active_window_via_hyprctl();
+        };
+
+        self.update_focus_pid_if_changed(state.address.as_deref(), None);
+
+        let class = state.class.unwrap_or_else(|| "unknown".to_string());
+        Some(ActiveWindow {
+            id: state.address.unwrap_or_else(|| "unknown".to_string()),
+            program_process_name: class.to_lowercase(),
+            program_name: class,
+            title: state.title.unwrap_or_else(|| "unknown".to_string()),
+        })
+    }
+
+    /// Direct `hyprctl activewindow -j` poll -- the pre-event-socket
+    /// behavior, kept as the fallback path. Also opportunistically caches
+    /// the pid it gets for free from this response (no extra `hyprctl
+    /// clients -j` call needed in this path).
+    #[cfg(target_os = "linux")]
+    fn get_hyprland_active_window_via_hyprctl(&mut self) -> Option<ActiveWindow> {
         let json = run_cmd("hyprctl", &["activewindow", "-j"])?;
         let window: HyprActiveWindow = serde_json::from_str(&json).ok()?;
-        let class = window.class.unwrap_or_else(|| "unknown".to_string());
+        let class = window.class.clone().unwrap_or_else(|| "unknown".to_string());
+        let address = window.address.as_deref().map(hypr_events::normalize_address);
+
+        self.update_focus_pid_if_changed(address.as_deref(), window.pid);
 
         Some(ActiveWindow {
-            id: window.address.unwrap_or_else(|| "unknown".to_string()),
+            id: address.unwrap_or_else(|| "unknown".to_string()),
             program_process_name: class.to_lowercase(),
             program_name: class,
             title: window.title.unwrap_or_else(|| "unknown".to_string()),
         })
+    }
+
+    /// Periodic ground-truth check: compares the event-socket pushed state
+    /// against a fresh `hyprctl activewindow -j`, correcting (and logging)
+    /// any divergence. Runs at most once every `HYPR_RECONCILE_SECONDS`.
+    #[cfg(target_os = "linux")]
+    fn reconcile_hypr_state(&mut self) {
+        let Some(watcher) = self.hypr_watcher.as_ref() else { return };
+        let now = Utc::now();
+        if now - self.hypr_last_reconcile < Duration::seconds(HYPR_RECONCILE_SECONDS) {
+            return;
+        }
+        self.hypr_last_reconcile = now;
+
+        let Some(json) = run_cmd("hyprctl", &["activewindow", "-j"]) else { return };
+        let Ok(ground_truth) = serde_json::from_str::<HyprActiveWindow>(&json) else { return };
+
+        let address = ground_truth.address.as_deref().map(hypr_events::normalize_address);
+        let truth_state = hypr_events::ActiveWindowState {
+            class: ground_truth.class.clone(),
+            title: ground_truth.title.clone(),
+            address: address.clone(),
+        };
+        let pushed_state = watcher.state();
+
+        if pushed_state != truth_state {
+            println!(
+                "chronomaxi hypr reconcile: pushed state diverged from hyprctl ground truth (pushed={:?}, truth={:?}), correcting",
+                pushed_state, truth_state
+            );
+            watcher.reconcile(truth_state);
+        }
+
+        self.update_focus_pid_if_changed(address.as_deref(), ground_truth.pid);
+    }
+
+    /// Resolves and caches the focused window's pid, but only when
+    /// `address` differs from the last-resolved one -- never on every
+    /// tick. `known_pid` lets callers that already have the pid (from
+    /// `hyprctl activewindow -j`'s own response) skip the extra `hyprctl
+    /// clients -j` lookup below.
+    #[cfg(target_os = "linux")]
+    fn update_focus_pid_if_changed(&mut self, address: Option<&str>, known_pid: Option<i64>) {
+        if self.hypr_focus_address.as_deref() == address {
+            return;
+        }
+        self.hypr_focus_address = address.map(|s| s.to_string());
+        self.focused_window_pid = known_pid.or_else(|| address.and_then(resolve_pid_via_hypr_clients));
     }
 
     #[cfg(target_os = "linux")]
@@ -628,7 +828,15 @@ impl LoggerV4 {
             #[cfg(target_os = "linux")]
             CaptureBackend::X11 => Some(self.device_state.get_keys().len()),
             #[cfg(target_os = "linux")]
-            CaptureBackend::Hyprland => None,
+            CaptureBackend::Hyprland => {
+                if !self.evdev_counters.has_ever_advanced() {
+                    return None;
+                }
+                let current = self.evdev_counters.keys_pressed.load(Ordering::Relaxed);
+                let delta = current.saturating_sub(self.evdev_keys_baseline);
+                self.evdev_keys_baseline = current;
+                Some(delta as usize)
+            }
             #[cfg(target_os = "macos")]
             CaptureBackend::MacOS => self.macos_capture.drain_keys_pressed(),
         }
@@ -644,12 +852,14 @@ impl LoggerV4 {
         program_process_name: &str,
         browser_title: Option<&str>,
         browser_site_name: Option<&str>,
+        sub_program: Option<&str>,
     ) -> Category {
         category::get_category(
             program_name,
             program_process_name,
             browser_title,
             browser_site_name,
+            sub_program,
         )
     }
 
@@ -687,7 +897,7 @@ impl LoggerV4 {
     pub fn accumulate_left_click_count(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         match self.backend {
             #[cfg(target_os = "linux")]
-            CaptureBackend::Hyprland => {}
+            CaptureBackend::Hyprland => self.accumulate_evdev_click_delta(EvdevClickButton::Left),
             #[cfg(target_os = "linux")]
             CaptureBackend::X11 => {
                 let current_mouse_state = self.device_state.get_mouse();
@@ -715,7 +925,7 @@ impl LoggerV4 {
     pub fn accumulate_right_click_count(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         match self.backend {
             #[cfg(target_os = "linux")]
-            CaptureBackend::Hyprland => {}
+            CaptureBackend::Hyprland => self.accumulate_evdev_click_delta(EvdevClickButton::Right),
             #[cfg(target_os = "linux")]
             CaptureBackend::X11 => {
                 let current_mouse_state = self.device_state.get_mouse();
@@ -743,7 +953,7 @@ impl LoggerV4 {
     pub fn accumulate_middle_click_count(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         match self.backend {
             #[cfg(target_os = "linux")]
-            CaptureBackend::Hyprland => {}
+            CaptureBackend::Hyprland => self.accumulate_evdev_click_delta(EvdevClickButton::Middle),
             #[cfg(target_os = "linux")]
             CaptureBackend::X11 => {
                 let current_mouse_state = self.device_state.get_mouse();
@@ -766,6 +976,78 @@ impl LoggerV4 {
             }
         }
         Ok(())
+    }
+
+    /// Drains one evdev click counter's delta into the current log, gated
+    /// on the same "has evdev ever advanced" permission signal as
+    /// `get_keys_pressed_count`'s Hyprland arm.
+    #[cfg(target_os = "linux")]
+    fn accumulate_evdev_click_delta(&mut self, button: EvdevClickButton) {
+        if !self.evdev_counters.has_ever_advanced() {
+            return;
+        }
+
+        let (current, baseline) = match button {
+            EvdevClickButton::Left => (
+                self.evdev_counters.left_clicks.load(Ordering::Relaxed),
+                &mut self.evdev_left_baseline,
+            ),
+            EvdevClickButton::Right => (
+                self.evdev_counters.right_clicks.load(Ordering::Relaxed),
+                &mut self.evdev_right_baseline,
+            ),
+            EvdevClickButton::Middle => (
+                self.evdev_counters.middle_clicks.load(Ordering::Relaxed),
+                &mut self.evdev_middle_baseline,
+            ),
+        };
+        let delta = current.saturating_sub(*baseline);
+        *baseline = current;
+
+        if delta > 0 {
+            if let Some(log) = self.current_log.as_mut() {
+                let field = match button {
+                    EvdevClickButton::Left => &mut log.left_click_count,
+                    EvdevClickButton::Right => &mut log.right_click_count,
+                    EvdevClickButton::Middle => &mut log.middle_click_count,
+                };
+                *field = Some(field.unwrap_or(0) + delta as usize);
+            }
+        }
+
+    }
+
+    /// Terminal (alacritty/kitty) sub-program drill-down (tmux). `None`
+    /// for non-terminal windows or when nothing resolvable (bare shell,
+    /// no tmux, etc). See tmux.rs for the full resolution strategy.
+    #[cfg(target_os = "linux")]
+    fn resolve_sub_program(&mut self, active_window: &ActiveWindow) -> Option<String> {
+        if !tmux::is_terminal_class(&active_window.program_process_name) {
+            return None;
+        }
+        let pid = self.focused_pid_for_terminal();
+        self.tmux_resolver.resolve(pid)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn focused_pid_for_terminal(&mut self) -> Option<i64> {
+        match self.backend {
+            CaptureBackend::Hyprland => self.focused_window_pid,
+            CaptureBackend::X11 => self.resolve_x11_focused_pid(),
+        }
+    }
+
+    /// X11 mirror of the Hyprland focus-pid cache: `xdotool getwindowpid`
+    /// only fires when the window id actually changed, never per tick.
+    #[cfg(target_os = "linux")]
+    fn resolve_x11_focused_pid(&mut self) -> Option<i64> {
+        let window_id = self.current_window_id.clone()?;
+        if self.x11_focus_window_id.as_deref() != Some(window_id.as_str()) {
+            self.x11_focus_window_id = Some(window_id.clone());
+            self.x11_focus_pid =
+                run_cmd("xdotool", &["getwindowpid", window_id.as_str()]).and_then(|s| s.trim().parse::<i64>().ok());
+        }
+        self.x11_focus_pid
     }
     // ========================================================================
 }
@@ -798,4 +1080,14 @@ fn parse_x11_mouse_position() -> Option<(i32, i32)> {
     }
 
     Some((parts[0].parse().ok()?, parts[1].parse().ok()?))
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_pid_via_hypr_clients(address: &str) -> Option<i64> {
+    let json = run_cmd("hyprctl", &["clients", "-j"])?;
+    let clients: Vec<HyprClient> = serde_json::from_str(&json).ok()?;
+    clients
+        .into_iter()
+        .find(|client| client.address.as_deref().map(hypr_events::normalize_address).as_deref() == Some(address))
+        .and_then(|client| client.pid)
 }

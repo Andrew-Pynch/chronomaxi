@@ -183,8 +183,16 @@ install_zshrc_hook() {
     # shellcheck disable=SC2016
     if grep -qF "$ZSHRC_MARK_BEGIN" "$ZSHRC"; then
         log "existing chronomaxi block found in $ZSHRC, refreshing it in place"
-        new_content=$(awk -v begin="$ZSHRC_MARK_BEGIN" -v end="$ZSHRC_MARK_END" -v block="$block" '
-            $0 == begin { printf "%s", block; in_block = 1; next }
+        # $block spans multiple lines -- awk's `-v var=value` assignment is
+        # parsed through the same escape/tokenizer path as program source
+        # on macOS's /usr/bin/awk (the BWK "one true awk", not gawk), which
+        # rejects a literal embedded newline with "awk: newline in string"
+        # instead of accepting it verbatim like gawk does. Passing it as a
+        # process-scoped env var and reading it back via the POSIX
+        # ENVIRON[] array sidesteps that parser entirely (portable across
+        # gawk, mawk, and BWK awk) -- same value, no re-tokenizing.
+        new_content=$(CHRONOMAXI_AWK_BLOCK="$block" awk -v begin="$ZSHRC_MARK_BEGIN" -v end="$ZSHRC_MARK_END" '
+            $0 == begin { printf "%s", ENVIRON["CHRONOMAXI_AWK_BLOCK"]; in_block = 1; next }
             in_block == 1 { if ($0 == end) { in_block = 0 }; next }
             { print }
         ' "$ZSHRC")
@@ -242,16 +250,18 @@ install_ssh_config_hook() {
 
     if grep -qF "$SSH_MARK_BEGIN" "$SSH_CONFIG"; then
         log "existing chronomaxi block found in $SSH_CONFIG, refreshing it in place"
-        new_content=$(awk -v begin="$SSH_MARK_BEGIN" -v end="$SSH_MARK_END" -v directives="$(ssh_directives)" '
-            $0 == begin { print; print directives; in_block = 1; next }
+        # See the ENVIRON[] note above install_zshrc_hook's equivalent
+        # awk call -- $directives is multi-line, same macOS BWK-awk fix.
+        new_content=$(CHRONOMAXI_AWK_DIRECTIVES="$(ssh_directives)" awk -v begin="$SSH_MARK_BEGIN" -v end="$SSH_MARK_END" '
+            $0 == begin { print; print ENVIRON["CHRONOMAXI_AWK_DIRECTIVES"]; in_block = 1; next }
             in_block == 1 { if ($0 == end) { print; in_block = 0 }; next }
             { print }
         ' "$SSH_CONFIG")
     elif grep -qE '^[[:space:]]*[Hh][Oo][Ss][Tt][[:space:]]+\*[[:space:]]*$' "$SSH_CONFIG"; then
         log "existing bare 'Host *' block found in $SSH_CONFIG, merging our directives into it"
-        new_content=$(awk -v begin="$SSH_MARK_BEGIN" -v end="$SSH_MARK_END" -v directives="$(ssh_directives)" '
+        new_content=$(CHRONOMAXI_AWK_DIRECTIVES="$(ssh_directives)" awk -v begin="$SSH_MARK_BEGIN" -v end="$SSH_MARK_END" '
             /^[[:space:]]*[Hh][Oo][Ss][Tt][[:space:]]+\*[[:space:]]*$/ && !done {
-                print; print begin; print directives; print end; done = 1; next
+                print; print begin; print ENVIRON["CHRONOMAXI_AWK_DIRECTIVES"]; print end; done = 1; next
             }
             { print }
         ' "$SSH_CONFIG")

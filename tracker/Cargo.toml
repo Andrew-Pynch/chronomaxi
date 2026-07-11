@@ -19,6 +19,7 @@ whoami = "1.5.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 device_query = "1.1.1"
+evdev = { version = "0.13.2", default-features = false }
 x11 = "2.21.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]

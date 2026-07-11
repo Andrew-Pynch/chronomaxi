@@ -37,6 +37,8 @@ impl CategoryMatcher {
         coding.insert("andrewpynch.com".to_string());
         coding.insert("github desktop".to_string());
         coding.insert("github".to_string());
+        coding.insert("alacritty".to_string());
+        coding.insert("kitty".to_string());
 
         let mut entertainment = HashSet::new();
         entertainment.insert("youtube.com".to_string());
@@ -74,13 +76,31 @@ impl CategoryMatcher {
         }
     }
 
+    /// Sub-programs that always mean "coding" regardless of which terminal
+    /// emulator hosts them (checked before the class/site/title hash-set
+    /// lookups below) -- e.g. alacritty running nvim is Coding even though
+    /// "alacritty" alone would already resolve to Coding via the coding
+    /// hash set; this override matters once terminal emulators host
+    /// non-coding sub-programs too.
+    const CODING_SUB_PROGRAMS: [&str; 13] = [
+        "nvim", "vim", "git", "omp", "claude", "codex", "cargo", "bun", "make", "gcc", "rustc", "python", "uv",
+    ];
+
     pub fn categorize(
         &self,
         program_name: &str,
         program_process_name: &str,
         browser_title: Option<&str>,
         browser_site_name: Option<&str>,
+        sub_program: Option<&str>,
     ) -> Category {
+        if let Some(sub) = sub_program {
+            let lower_sub = sub.to_lowercase();
+            if Self::CODING_SUB_PROGRAMS.contains(&lower_sub.as_str()) {
+                return Category::Coding;
+            }
+        }
+
         let lower_program_name = program_name.to_lowercase();
         let lower_process_name = program_process_name.to_lowercase();
 
@@ -157,6 +177,7 @@ pub fn get_category(
     program_process_name: &str,
     browser_title: Option<&str>,
     browser_site_name: Option<&str>,
+    sub_program: Option<&str>,
 ) -> Category {
     let matcher = CategoryMatcher::new();
 
@@ -165,16 +186,50 @@ pub fn get_category(
         program_process_name,
         browser_title,
         browser_site_name,
+        sub_program,
     );
 
     // println!(
-    //     "\n\nBrowser Title: {:?}\nBrowser Site Name: {:?}\nProgram Name: {:?}\nProgram Process Name: {:?}\nCategory: {:?}",
+    //     "\n\nBrowser Title: {:?}\nBrowser Site Name: {:?}\nProgram Name: {:?}\nProgram Process Name: {:?}\nSubProgram: {:?}\nCategory: {:?}",
     //     browser_title,
     //     browser_site_name,
     //     program_name,
     //     program_process_name,
+    //     sub_program,
     //     result
     // );
 
-    return result;
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_with_coding_sub_program_is_coding() {
+        assert_eq!(
+            get_category("Alacritty", "alacritty", None, None, Some("nvim")),
+            Category::Coding
+        );
+    }
+
+    #[test]
+    fn browser_title_youtube_domain_is_entertainment() {
+        assert_eq!(
+            get_category("Brave Browser", "brave", Some("Cool Video - youtube.com"), None, None),
+            Category::Entertainment
+        );
+    }
+
+    #[test]
+    fn bare_terminal_defaults_to_coding_via_terminal_class() {
+        // "zsh" is not in the sub-program override list -- this exercises
+        // the terminal-class hash-set lookup instead (alacritty is now a
+        // member of `coding`), not the override.
+        assert_eq!(
+            get_category("Alacritty", "alacritty", None, None, Some("zsh")),
+            Category::Coding
+        );
+    }
 }

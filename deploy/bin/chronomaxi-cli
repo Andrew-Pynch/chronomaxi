@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# deploy/bin/chronomaxi-cli -- Hyprland-facing CLI for the chronomaxi
+# dashboard URL and the timer / actor-override HTTP API. Invoked from
+# ~/.config/hypr/bindings.conf global hotkeys on ron (chronomaxi batch two,
+# item 10b).
+#
+# Symlinked to ~/.local/bin/chronomaxi-cli (idempotent, see deploy/README or
+# the batch-two runbook for the install step). Source of truth lives here in
+# the repo; edit this file, not the symlink target.
+#
+# Secrets are never in this repo or in bindings.conf: reads
+# ~/.config/chronomaxi/env at runtime for CHRONOMAXI_INGEST_URL and
+# CHRONOMAXI_INGEST_SECRET (fails with a clear, secret-free message if that
+# file or those vars are missing).
+#
+# Dependency-light: bash + curl. jq is optional -- used only to pull a
+# friendlier summary out of the response JSON for notify-send; falls back to
+# a plain "<subcommand>: <action> ok" message when jq is absent or the
+# response doesn't parse.
+#
+# Subcommands:
+#   dashboard                                   print the dashboard URL
+#   timer <start|pause|toggle|reset> [minutes]  POST /timer
+#   actor <on|off|toggle> [--device NAME] [--actor LABEL]   POST /actor-override
+#
+# Notes:
+#   - `timer toggle`/`timer start` omit durationMs unless [minutes] is given,
+#     so the server applies its own last-used/25min default.
+#   - `actor toggle` has no server-side toggle verb (the API only takes a
+#     boolean `active`), so this CLI tracks the last value IT sent per
+#     device in a small local state file and flips it. The cache only
+#     updates after a successful (2xx) response, so a failed/404 attempt
+#     never desyncs it from reality.
+set -euo pipefail
+
+DASHBOARD_URL="https://big-bertha.tail3f4961.ts.net:8443"
+ENV_FILE="${CHRONOMAXI_ENV_FILE:-$HOME/.config/chronomaxi/env}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/chronomaxi"
+CURL_TIMEOUT=3
+NOTIFY_TITLE="Chronomaxi"
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: chronomaxi-cli <command> [args]
+
+  dashboard                                     print the dashboard URL
+  timer <start|pause|toggle|reset> [minutes]    POST /timer
+  actor <on|off|toggle> [--device NAME] [--actor LABEL]
+                                                 POST /actor-override
+
+Env:
+  CHRONOMAXI_ENV_FILE     override path to the secrets file
+                          (default: ~/.config/chronomaxi/env)
+  CHRONOMAXI_DEVICE_NAME  default --device for `actor` (default: big-ron)
+
+Reads CHRONOMAXI_INGEST_URL / CHRONOMAXI_INGEST_SECRET from the env file.
+USAGE
+}
+
+notify() {
+    # notify <urgency> <body>
+    notify-send -u "$1" "$NOTIFY_TITLE" "$2" 2>/dev/null || true
+}
+
+die() {
+    # die <body> -- prints to stderr AND notify-send's a critical toast.
+    # Never pass secret material to this.
+    notify critical "$1"
+    printf 'chronomaxi-cli: %s\n' "$1" >&2
+    exit 1
+}
+
+load_env() {
+    if [[ ! -r "$ENV_FILE" ]]; then
+        die "missing $ENV_FILE -- run deploy/attribution/install.sh first"
+    fi
+    # shellcheck disable=SC1090
+    set -a
+    source "$ENV_FILE"
+    set +a
+    if [[ -z "${CHRONOMAXI_INGEST_URL:-}" || -z "${CHRONOMAXI_INGEST_SECRET:-}" ]]; then
+        die "CHRONOMAXI_INGEST_URL / CHRONOMAXI_INGEST_SECRET not set in $ENV_FILE"
+    fi
+}
+
+have_jq() { command -v jq >/dev/null 2>&1; }
+
+# api <path> <json-body> -> prints response body on 2xx, dies (notify+exit) otherwise.
+api() {
+    local path="$1" body="$2" tmp status rc=0
+    tmp="$(mktemp)"
+    status="$(curl -sS --max-time "$CURL_TIMEOUT" -o "$tmp" -w '%{http_code}' \
+        -X POST "${CHRONOMAXI_INGEST_URL%/}$path" \
+        -H "Authorization: Bearer $CHRONOMAXI_INGEST_SECRET" \
+        -H 'Content-Type: application/json' \
+        -d "$body")" || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        rm -f "$tmp"
+        die "$path: request failed (network/timeout after ${CURL_TIMEOUT}s, curl exit $rc)"
+    fi
+    if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+        rm -f "$tmp"
+        if [[ "$status" == "404" ]]; then
+            die "$path: HTTP 404 (route not deployed yet)"
+        fi
+        die "$path: HTTP $status"
+    fi
+    cat "$tmp"
+    rm -f "$tmp"
+}
+
+ms_to_clock() {
+    # ms_to_clock <milliseconds> -> M:SS
+    local ms="$1" total_sec min sec
+    total_sec=$((ms / 1000))
+    min=$((total_sec / 60))
+    sec=$((total_sec % 60))
+    printf '%d:%02d' "$min" "$sec"
+}
+
+cmd_dashboard() {
+    printf '%s\n' "$DASHBOARD_URL"
+}
+
+cmd_timer() {
+    local action="${1:-}" minutes="${2:-}" body resp summary ms running
+    case "$action" in
+        start|pause|toggle|reset) ;;
+        *) usage; exit 2 ;;
+    esac
+
+    if [[ -n "$minutes" ]]; then
+        [[ "$minutes" =~ ^[0-9]+$ ]] || die "timer: minutes must be a positive integer, got '$minutes'"
+        body="$(printf '{"action":"%s","durationMs":%d}' "$action" $((minutes * 60000)))"
+    else
+        body="$(printf '{"action":"%s"}' "$action")"
+    fi
+
+    resp="$(api /timer "$body")"
+
+    summary=""
+    if have_jq && [[ -n "$resp" ]] && printf '%s' "$resp" | jq -e . >/dev/null 2>&1; then
+        # Confirmed response shape (same for all 4 actions):
+        # {durationMs,runningSince,pausedRemainingMs,running,remainingMs,updatedAt}
+        ms="$(printf '%s' "$resp" | jq -r '(.remainingMs // empty)' 2>/dev/null || true)"
+        running="$(printf '%s' "$resp" | jq -r '.running' 2>/dev/null || true)"
+        if [[ "$ms" =~ ^[0-9]+$ ]]; then
+            case "$running" in
+                true) summary="timer: running $(ms_to_clock "$ms")" ;;
+                false) summary="timer: paused $(ms_to_clock "$ms")" ;;
+                *) summary="timer: $action $(ms_to_clock "$ms")" ;;
+            esac
+        fi
+    fi
+    [[ -n "$summary" ]] || summary="timer: $action ok"
+
+    notify normal "$summary"
+    printf '%s\n' "$summary"
+}
+
+cmd_actor() {
+    local action="${1:-}" device="${CHRONOMAXI_DEVICE_NAME:-big-ron}" actor_label="" \
+        active resolved_actor resp summary state_file cached new_active body
+    shift || true
+    case "$action" in
+        on|off|toggle) ;;
+        *) usage; exit 2 ;;
+    esac
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --device) device="${2:?--device requires a value}"; shift 2 ;;
+            --actor) actor_label="${2:?--actor requires a value}"; shift 2 ;;
+            *) usage; exit 2 ;;
+        esac
+    done
+
+    mkdir -p "$STATE_DIR"
+    state_file="$STATE_DIR/actor-override-active.$device"
+
+    case "$action" in
+        on) new_active=true ;;
+        off) new_active=false ;;
+        toggle)
+            cached="$(cat "$state_file" 2>/dev/null || true)"
+            if [[ "$cached" == "true" ]]; then
+                new_active=false
+            else
+                new_active=true
+            fi
+            ;;
+    esac
+
+    if [[ -n "$actor_label" ]]; then
+        body="$(printf '{"deviceName":"%s","active":%s,"actor":"%s"}' "$device" "$new_active" "$actor_label")"
+    else
+        body="$(printf '{"deviceName":"%s","active":%s}' "$device" "$new_active")"
+    fi
+
+    resp="$(api /actor-override "$body")"
+    printf '%s\n' "$new_active" > "$state_file"
+
+    summary=""
+    if have_jq && [[ -n "$resp" ]] && printf '%s' "$resp" | jq -e . >/dev/null 2>&1; then
+        # Confirmed response shape: {deviceName,actor,active,updatedAt}
+        active="$(printf '%s' "$resp" | jq -r '.active' 2>/dev/null || true)"
+        resolved_actor="$(printf '%s' "$resp" | jq -r '(.actor // empty)' 2>/dev/null || true)"
+        if [[ "$active" == "true" || "$active" == "false" ]]; then
+            summary="actor: $device $([[ "$active" == "true" ]] && echo active || echo inactive)"
+            [[ -n "$resolved_actor" ]] && summary="$summary ($resolved_actor)"
+        fi
+    fi
+    [[ -n "$summary" ]] || summary="actor: $device $([[ "$new_active" == "true" ]] && echo active || echo inactive)"
+
+    notify normal "$summary"
+    printf '%s\n' "$summary"
+}
+
+main() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        dashboard)
+            cmd_dashboard
+            ;;
+        timer)
+            shift
+            load_env
+            cmd_timer "$@"
+            ;;
+        actor)
+            shift
+            load_env
+            cmd_actor "$@"
+            ;;
+        -h|--help|"")
+            usage
+            [[ "$cmd" == "" ]] && exit 1 || exit 0
+            ;;
+        *)
+            echo "chronomaxi-cli: unknown command: $cmd" >&2
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
