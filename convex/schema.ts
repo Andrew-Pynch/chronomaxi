@@ -62,14 +62,10 @@ export default defineSchema({
     dayAgg: defineTable({
         // Local (America/Chicago) calendar date, "YYYY-MM-DD".
         dayKey: v.string(),
-        // Canonical device identity for this bucket. Optional ONLY during
-        // the wave-2 transition: rows written before this field existed
-        // have it unset, and by_dayKey_device's dayKey-only prefix scan
-        // still folds them into the device-unset (summed) dashboard view.
-        // scripts/rebuild-aggregates.ts (wave 3) replays every span from
-        // scratch and makes it required in practice; the validator only
-        // flips to non-optional in a later tightening pass.
-        deviceName: v.optional(v.string()),
+        // Canonical device identity for this bucket. Required since the
+        // 2026-07-10 backfill rebuilt every bucket row with its device
+        // attribution (see scripts/rebuild-aggregates.ts).
+        deviceName: v.string(),
         totalDurationMs: v.number(),
         humanDurationMs: v.number(),
         agentDurationMs: v.number(),
@@ -86,7 +82,7 @@ export default defineSchema({
         dayKey: v.string(),
         // 0-23, local (America/Chicago) hour.
         hour: v.number(),
-        deviceName: v.optional(v.string()),
+        deviceName: v.string(),
         totalDurationMs: v.number(),
         humanDurationMs: v.number(),
         agentDurationMs: v.number(),
@@ -97,7 +93,7 @@ export default defineSchema({
 
     programAgg: defineTable({
         dayKey: v.string(),
-        deviceName: v.optional(v.string()),
+        deviceName: v.string(),
         // programName (display identity), matching the existing dashboard's
         // ProgramStat.program convention (frontend/src/lib/activity-types.ts).
         program: v.string(),
@@ -109,7 +105,7 @@ export default defineSchema({
 
     categoryAgg: defineTable({
         dayKey: v.string(),
-        deviceName: v.optional(v.string()),
+        deviceName: v.string(),
         category: v.string(),
         durationMs: v.number(),
         humanDurationMs: v.number(),
@@ -125,7 +121,7 @@ export default defineSchema({
     // programAgg row.
     programDetailAgg: defineTable({
         dayKey: v.string(),
-        deviceName: v.optional(v.string()),
+        deviceName: v.string(),
         program: v.string(),
         subProgram: v.string(),
         durationMs: v.number(),
