@@ -6,10 +6,11 @@ import { v } from "convex/values";
 // `spans` is the append-only system of record for tracked activity (one row
 // per contiguous same-window/program run, emitted directly by the Rust
 // tracker's checkpoint logic or produced by the historical compaction
-// importer). dayAgg/hourAgg/programAgg/categoryAgg are small materialized
-// rollups computed incrementally from spans via convex/lib/aggregation.ts --
-// they are the ONLY tables the dashboard query reads, so it never scans the
-// (potentially tens-of-thousands-of-rows) spans table.
+// importer). dayAgg/hourAgg/programAgg/categoryAgg/programDetailAgg are
+// small materialized rollups computed incrementally from spans via
+// convex/lib/aggregation.ts -- they are the ONLY tables the dashboard query
+// reads, so it never scans the (potentially tens-of-thousands-of-rows)
+// spans table.
 export default defineSchema({
     spans: defineTable({
         // Dedupe/idempotency key: the client-generated sourceId from the
@@ -21,7 +22,10 @@ export default defineSchema({
         // Canonical device name after deviceAliases resolution. All queries
         // and indexes group on this field, never rawDeviceName.
         deviceName: v.string(),
-        // "human" | "agent:<name>"
+        // "human" | "agent:<name>" -- may already be REWRITTEN by an active
+        // actorOverrides row for this device at ingest time (see
+        // convex/spans.ts); the tracker's own report is not necessarily
+        // what ends up here.
         actor: v.string(),
         // Parsed out of actor for query convenience; unset when actor === "human".
         agentName: v.optional(v.string()),
@@ -33,6 +37,11 @@ export default defineSchema({
         windowId: v.string(),
         programProcessName: v.string(),
         programName: v.string(),
+        // Terminal-pane sub-identity (e.g. "nvim", "cargo", "zsh") the
+        // tracker resolved via tmux for terminal-class windows only. Unset
+        // for every other program, and for spans from trackers that
+        // predate this field.
+        subProgram: v.optional(v.string()),
         browserTitle: v.optional(v.string()),
         // Normalized to 0 at ingest/import time -- never left undefined --
         // so aggregation.ts can sum unconditionally.
@@ -53,6 +62,14 @@ export default defineSchema({
     dayAgg: defineTable({
         // Local (America/Chicago) calendar date, "YYYY-MM-DD".
         dayKey: v.string(),
+        // Canonical device identity for this bucket. Optional ONLY during
+        // the wave-2 transition: rows written before this field existed
+        // have it unset, and by_dayKey_device's dayKey-only prefix scan
+        // still folds them into the device-unset (summed) dashboard view.
+        // scripts/rebuild-aggregates.ts (wave 3) replays every span from
+        // scratch and makes it required in practice; the validator only
+        // flips to non-optional in a later tightening pass.
+        deviceName: v.optional(v.string()),
         totalDurationMs: v.number(),
         humanDurationMs: v.number(),
         agentDurationMs: v.number(),
@@ -63,22 +80,24 @@ export default defineSchema({
         mouseMovementInMM: v.number(),
         spanCount: v.number(),
         updatedAt: v.number(),
-    }).index("by_dayKey", ["dayKey"]),
+    }).index("by_dayKey_device", ["dayKey", "deviceName"]),
 
     hourAgg: defineTable({
         dayKey: v.string(),
         // 0-23, local (America/Chicago) hour.
         hour: v.number(),
+        deviceName: v.optional(v.string()),
         totalDurationMs: v.number(),
         humanDurationMs: v.number(),
         agentDurationMs: v.number(),
         keysPressedCount: v.number(),
         spanCount: v.number(),
         updatedAt: v.number(),
-    }).index("by_dayKey_hour", ["dayKey", "hour"]),
+    }).index("by_day_hour_device", ["dayKey", "hour", "deviceName"]),
 
     programAgg: defineTable({
         dayKey: v.string(),
+        deviceName: v.optional(v.string()),
         // programName (display identity), matching the existing dashboard's
         // ProgramStat.program convention (frontend/src/lib/activity-types.ts).
         program: v.string(),
@@ -86,17 +105,63 @@ export default defineSchema({
         keysPressedCount: v.number(),
         spanCount: v.number(),
         updatedAt: v.number(),
-    }).index("by_dayKey_program", ["dayKey", "program"]),
+    }).index("by_day_device_program", ["dayKey", "deviceName", "program"]),
 
     categoryAgg: defineTable({
         dayKey: v.string(),
+        deviceName: v.optional(v.string()),
         category: v.string(),
         durationMs: v.number(),
         humanDurationMs: v.number(),
         agentDurationMs: v.number(),
         spanCount: v.number(),
         updatedAt: v.number(),
-    }).index("by_dayKey_category", ["dayKey", "category"]),
+    }).index("by_day_device_category", ["dayKey", "deviceName", "category"]),
+
+    // Sub-program breakdown within a program, e.g. programName="alacritty",
+    // subProgram="nvim" -- only ever written when the source span carries a
+    // subProgram (convex/lib/aggregation.ts deriveSpanDeltas), so this table
+    // stays small (terminal-pane activity only) rather than mirroring every
+    // programAgg row.
+    programDetailAgg: defineTable({
+        dayKey: v.string(),
+        deviceName: v.optional(v.string()),
+        program: v.string(),
+        subProgram: v.string(),
+        durationMs: v.number(),
+        keysPressedCount: v.number(),
+        spanCount: v.number(),
+        updatedAt: v.number(),
+    }).index("by_day_device_program_sub", [
+        "dayKey",
+        "deviceName",
+        "program",
+        "subProgram",
+    ]),
+
+    // Singleton countdown-timer row (a pomodoro-style widget backing store).
+    // Running iff runningSince is set; pausedRemainingMs is a frozen
+    // snapshot of what remained at the moment of the last pause, kept only
+    // for display while paused (see convex/timer.ts for the exact
+    // start/pause/reset semantics). Never more than one row exists.
+    timerState: defineTable({
+        durationMs: v.number(),
+        runningSince: v.optional(v.number()),
+        pausedRemainingMs: v.optional(v.number()),
+        updatedAt: v.number(),
+    }),
+
+    // At most one row per deviceName. While active=true, span ingest for
+    // that device rewrites the incoming actor/agentName to `actor` before
+    // the span is stored and before aggregate deltas are derived (see
+    // convex/spans.ts) -- e.g. to attribute an unattended-agent session's
+    // activity correctly instead of it being recorded as human.
+    actorOverrides: defineTable({
+        deviceName: v.string(),
+        actor: v.string(),
+        active: v.boolean(),
+        updatedAt: v.number(),
+    }).index("by_deviceName", ["deviceName"]),
 
     sshSessions: defineTable({
         // Idempotency key of the ssh-start event that created this row.
@@ -126,7 +191,8 @@ export default defineSchema({
     })
         .index("by_sourceId", ["sourceId"])
         .index("by_sessionId", ["sessionId"])
-        .index("by_targetHost_startedAt", ["targetHost", "startedAt"]),
+        .index("by_targetHost_startedAt", ["targetHost", "startedAt"])
+        .index("by_startedAt", ["startedAt"]),
 
     deviceAliases: defineTable({
         // Raw device name as recorded at capture time, e.g. "andrew-MS-7B86".
@@ -151,4 +217,38 @@ export default defineSchema({
         ),
         importBatch: v.string(),
     }).index("by_source", ["source"]),
+
+    // Resume state for scripts/rebuild-aggregates.ts (convex/rebuild.ts).
+    // One row per rebuild run, keyed by runId so a fresh --yes invocation
+    // never collides with a still-resumable prior run's cursor.
+    rebuildCheckpoints: defineTable({
+        runId: v.string(),
+        phase: v.union(
+            v.literal("wipe"),
+            v.literal("replay"),
+            v.literal("complete"),
+        ),
+        // _creationTime cutoff captured once at wipe start: replay only
+        // ever processes spans with _creationTime <= watermark, so spans
+        // ingested WHILE a rebuild is running are never double-counted.
+        watermark: v.number(),
+        // Convex pagination cursor for whichever table the wipe phase is
+        // currently draining; reset to undefined when advancing to the
+        // next table.
+        wipeTable: v.optional(
+            v.union(
+                v.literal("dayAgg"),
+                v.literal("hourAgg"),
+                v.literal("programAgg"),
+                v.literal("categoryAgg"),
+                v.literal("programDetailAgg"),
+            ),
+        ),
+        wipeCursor: v.optional(v.string()),
+        // Convex pagination cursor into the spans table for the replay phase.
+        replayCursor: v.optional(v.string()),
+        spansReplayed: v.number(),
+        startedAt: v.number(),
+        updatedAt: v.number(),
+    }).index("by_runId", ["runId"]),
 });

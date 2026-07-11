@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
 
 // Only called from convex/http.ts POST /session-event -- never exposed to a
 // public Convex client. One POST carries exactly one lifecycle event
@@ -107,5 +107,50 @@ export const ingestSessionEvent = internalMutation({
             lastEventSourceId: args.sourceId,
         });
         return { applied: true };
+    },
+});
+
+const MAX_RECENT_LIMIT = 100;
+
+const sshSessionValidator = v.object({
+    sessionId: v.string(),
+    actor: v.string(),
+    agentName: v.optional(v.string()),
+    originHost: v.string(),
+    targetHost: v.string(),
+    targetHostAlias: v.optional(v.string()),
+    remoteUser: v.optional(v.string()),
+    startedAt: v.number(),
+    endedAt: v.optional(v.number()),
+    durationMs: v.optional(v.number()),
+    exitCode: v.optional(v.number()),
+});
+
+// Most recent sessions first, capped at MAX_RECENT_LIMIT regardless of the
+// requested `limit` (a caller asking for 10000 gets 100, not an
+// unbounded/expensive scan).
+export const recent = query({
+    args: { limit: v.optional(v.number()) },
+    returns: v.array(sshSessionValidator),
+    handler: async (ctx, args) => {
+        const limit = Math.max(1, Math.min(args.limit ?? MAX_RECENT_LIMIT, MAX_RECENT_LIMIT));
+        const rows = await ctx.db
+            .query("sshSessions")
+            .withIndex("by_startedAt")
+            .order("desc")
+            .take(limit);
+        return rows.map((row) => ({
+            sessionId: row.sessionId,
+            actor: row.actor,
+            agentName: row.agentName,
+            originHost: row.originHost,
+            targetHost: row.targetHost,
+            targetHostAlias: row.targetHostAlias,
+            remoteUser: row.remoteUser,
+            startedAt: row.startedAt,
+            endedAt: row.endedAt,
+            durationMs: row.durationMs,
+            exitCode: row.exitCode,
+        }));
     },
 });

@@ -2,13 +2,18 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { TIMEZONE, localTimeParts } from "./lib/aggregation";
 
-// getDashboard() reads ONLY the four materialized aggregate tables --
+// getDashboard() reads ONLY the materialized aggregate tables --
 // dayAgg/hourAgg/programAgg/categoryAgg -- never the spans table, so it
 // stays fast and live-subscribable regardless of how many spans have
 // accumulated. Field names/units mirror frontend/src/lib/activity-types.ts
 // exactly (totalHours, keystrokes, activeMinutes, durationHours, ...) with
 // an additional cheap actor split (human vs agent) at the day/hour/category
 // level, since that math falls out of the same rollup rows for free.
+//
+// Every bucket table is now keyed per-device (schema.ts by_*_device
+// indexes). getDashboard({device}) either narrows every series to that one
+// device, or (device omitted) sums across every device server-side --
+// callers never need to fan out per-device queries themselves.
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_MINUTE = 60_000;
@@ -62,6 +67,25 @@ function dayKeysBack(todayKey: string, count: number): string[] {
     return keys;
 }
 
+// Inclusive walk from startDayKey to endDayKey, both "YYYY-MM-DD" -- used
+// only by getProgramDetail's explicit range mode (dayKeysBack above always
+// anchors on "today", which doesn't fit an arbitrary historical range).
+function dayKeysInRange(startDayKey: string, endDayKey: string): string[] {
+    const start = parseDayKey(startDayKey);
+    const end = parseDayKey(endDayKey);
+    const cursor = new Date(Date.UTC(start.year, start.month - 1, start.day, 12));
+    const endDate = new Date(Date.UTC(end.year, end.month - 1, end.day, 12));
+    if (cursor.getTime() > endDate.getTime()) {
+        throw new Error(`startDayKey ${startDayKey} must be <= endDayKey ${endDayKey}`);
+    }
+    const keys: string[] = [];
+    while (cursor.getTime() <= endDate.getTime()) {
+        keys.push(formatDayKey(cursor));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return keys;
+}
+
 const dailySummaryValidator = v.object({
     date: v.string(),
     label: v.string(),
@@ -99,6 +123,12 @@ const categoryStatValidator = v.object({
     agentHours: v.number(),
 });
 
+const perDeviceDayValidator = v.object({
+    dayKey: v.string(),
+    deviceName: v.string(),
+    durationMs: v.number(),
+});
+
 function formatDuration(durationMs: number): string {
     if (durationMs > 0 && durationMs < MS_PER_MINUTE) {
         return "<1m";
@@ -112,7 +142,7 @@ function formatDuration(durationMs: number): string {
 }
 
 export const getDashboard = query({
-    args: {},
+    args: { device: v.optional(v.string()) },
     returns: v.object({
         days: v.array(dailySummaryValidator),
         today: dailySummaryValidator,
@@ -121,33 +151,68 @@ export const getDashboard = query({
         categoriesToday: v.array(categoryStatValidator),
         generatedAt: v.string(),
         timezone: v.string(),
+        // Every deviceName that has posted a dayAgg row within the last
+        // DAYS_IN_SUMMARY days, sorted -- drives a device switcher.
+        devices: v.array(v.string()),
+        // Full per-device breakdown for the same 7-day window regardless of
+        // `device` (unlike every field above, which narrows/sums per
+        // `device`) -- enough for a stacked per-device chart alongside the
+        // current selection's summary series.
+        perDeviceDays: v.array(perDeviceDayValidator),
     }),
-    handler: async (ctx) => {
+    handler: async (ctx, args) => {
+        const device = args.device;
         const todayKey = todayDayKey();
         const dayKeys = dayKeysBack(todayKey, DAYS_IN_SUMMARY);
 
-        const dayRows = await Promise.all(
+        // One query per day, every device -- the by_dayKey_device prefix
+        // scan (dayKey only) also picks up pre-deviceName legacy rows
+        // (deviceName unset), which fold into the device-unset sum below
+        // exactly like a device-set dashboard would have seen them before
+        // this field existed.
+        const dayRowsByDay = await Promise.all(
             dayKeys.map((dayKey) =>
                 ctx.db
                     .query("dayAgg")
-                    .withIndex("by_dayKey", (q) => q.eq("dayKey", dayKey))
-                    .unique(),
+                    .withIndex("by_dayKey_device", (q) => q.eq("dayKey", dayKey))
+                    .collect(),
             ),
         );
 
+        const deviceSet = new Set<string>();
+        const perDeviceDays: { dayKey: string; deviceName: string; durationMs: number }[] = [];
+        for (let i = 0; i < dayKeys.length; i += 1) {
+            const dayKey = dayKeys[i]!;
+            for (const row of dayRowsByDay[i]!) {
+                if (row.deviceName === undefined) continue;
+                deviceSet.add(row.deviceName);
+                perDeviceDays.push({
+                    dayKey,
+                    deviceName: row.deviceName,
+                    durationMs: row.totalDurationMs,
+                });
+            }
+        }
+        const devices = Array.from(deviceSet).sort();
+
         const days = dayKeys.map((dayKey, index) => {
-            const row = dayRows[index];
+            const rows = dayRowsByDay[index]!;
+            const selected = device === undefined ? rows : rows.filter((row) => row.deviceName === device);
+            const totalDurationMs = selected.reduce((sum, row) => sum + row.totalDurationMs, 0);
+            const humanDurationMs = selected.reduce((sum, row) => sum + row.humanDurationMs, 0);
+            const agentDurationMs = selected.reduce((sum, row) => sum + row.agentDurationMs, 0);
             return {
                 date: dayKey,
                 label: dayKeyLabel(dayKey),
-                totalHours: (row?.totalDurationMs ?? 0) / MS_PER_HOUR,
-                humanHours: (row?.humanDurationMs ?? 0) / MS_PER_HOUR,
-                agentHours: (row?.agentDurationMs ?? 0) / MS_PER_HOUR,
-                keystrokes: row?.keysPressedCount ?? 0,
-                leftClickCount: row?.leftClickCount ?? 0,
-                rightClickCount: row?.rightClickCount ?? 0,
-                middleClickCount: row?.middleClickCount ?? 0,
-                mouseMovementInMeters: (row?.mouseMovementInMM ?? 0) / MM_PER_METER,
+                totalHours: totalDurationMs / MS_PER_HOUR,
+                humanHours: humanDurationMs / MS_PER_HOUR,
+                agentHours: agentDurationMs / MS_PER_HOUR,
+                keystrokes: selected.reduce((sum, row) => sum + row.keysPressedCount, 0),
+                leftClickCount: selected.reduce((sum, row) => sum + row.leftClickCount, 0),
+                rightClickCount: selected.reduce((sum, row) => sum + row.rightClickCount, 0),
+                middleClickCount: selected.reduce((sum, row) => sum + row.middleClickCount, 0),
+                mouseMovementInMeters:
+                    selected.reduce((sum, row) => sum + row.mouseMovementInMM, 0) / MM_PER_METER,
             };
         });
         const today = days.find((d) => d.date === todayKey);
@@ -157,52 +222,93 @@ export const getDashboard = query({
 
         const hourRows = await ctx.db
             .query("hourAgg")
-            .withIndex("by_dayKey_hour", (q) => q.eq("dayKey", todayKey))
+            .withIndex("by_day_hour_device", (q) => q.eq("dayKey", todayKey))
             .collect();
-        const hourByNumber = new Map(hourRows.map((row) => [row.hour, row]));
+        const selectedHourRows =
+            device === undefined ? hourRows : hourRows.filter((row) => row.deviceName === device);
+        const hourTotals = new Map<
+            number,
+            { keysPressedCount: number; totalDurationMs: number; humanDurationMs: number; agentDurationMs: number }
+        >();
+        for (const row of selectedHourRows) {
+            const acc = hourTotals.get(row.hour) ?? {
+                keysPressedCount: 0,
+                totalDurationMs: 0,
+                humanDurationMs: 0,
+                agentDurationMs: 0,
+            };
+            acc.keysPressedCount += row.keysPressedCount;
+            acc.totalDurationMs += row.totalDurationMs;
+            acc.humanDurationMs += row.humanDurationMs;
+            acc.agentDurationMs += row.agentDurationMs;
+            hourTotals.set(row.hour, acc);
+        }
         const hourlyToday = Array.from({ length: HOURS_IN_DAY }, (_, hour) => {
-            const row = hourByNumber.get(hour);
+            const acc = hourTotals.get(hour);
             return {
                 hour,
                 label: `${String(hour).padStart(2, "0")}:00`,
-                keystrokes: row?.keysPressedCount ?? 0,
-                activeMinutes: (row?.totalDurationMs ?? 0) / MS_PER_MINUTE,
-                humanMinutes: (row?.humanDurationMs ?? 0) / MS_PER_MINUTE,
-                agentMinutes: (row?.agentDurationMs ?? 0) / MS_PER_MINUTE,
+                keystrokes: acc?.keysPressedCount ?? 0,
+                activeMinutes: (acc?.totalDurationMs ?? 0) / MS_PER_MINUTE,
+                humanMinutes: (acc?.humanDurationMs ?? 0) / MS_PER_MINUTE,
+                agentMinutes: (acc?.agentDurationMs ?? 0) / MS_PER_MINUTE,
             };
         });
 
         const programRows = await ctx.db
             .query("programAgg")
-            .withIndex("by_dayKey_program", (q) => q.eq("dayKey", todayKey))
+            .withIndex("by_day_device_program", (q) => q.eq("dayKey", todayKey))
             .collect();
-        const programsToday = programRows
-            .map((row) => ({
-                program: row.program,
-                durationHours: row.durationMs / MS_PER_HOUR,
-                formattedDuration: formatDuration(row.durationMs),
-                keystrokes: row.keysPressedCount,
+        const selectedProgramRows =
+            device === undefined ? programRows : programRows.filter((row) => row.deviceName === device);
+        const programTotals = new Map<string, { durationMs: number; keysPressedCount: number }>();
+        for (const row of selectedProgramRows) {
+            const acc = programTotals.get(row.program) ?? { durationMs: 0, keysPressedCount: 0 };
+            acc.durationMs += row.durationMs;
+            acc.keysPressedCount += row.keysPressedCount;
+            programTotals.set(row.program, acc);
+        }
+        const programsToday = Array.from(programTotals.entries())
+            .map(([program, acc]) => ({
+                program,
+                durationHours: acc.durationMs / MS_PER_HOUR,
+                formattedDuration: formatDuration(acc.durationMs),
+                keystrokes: acc.keysPressedCount,
             }))
             .sort((left, right) => right.durationHours - left.durationHours);
 
         const categoryRows = await ctx.db
             .query("categoryAgg")
-            .withIndex("by_dayKey_category", (q) => q.eq("dayKey", todayKey))
+            .withIndex("by_day_device_category", (q) => q.eq("dayKey", todayKey))
             .collect();
-        const todayTotalDurationMs = categoryRows.reduce(
-            (sum, row) => sum + row.durationMs,
+        const selectedCategoryRows =
+            device === undefined ? categoryRows : categoryRows.filter((row) => row.deviceName === device);
+        const categoryTotals = new Map<
+            string,
+            { durationMs: number; humanDurationMs: number; agentDurationMs: number }
+        >();
+        for (const row of selectedCategoryRows) {
+            const acc = categoryTotals.get(row.category) ?? {
+                durationMs: 0,
+                humanDurationMs: 0,
+                agentDurationMs: 0,
+            };
+            acc.durationMs += row.durationMs;
+            acc.humanDurationMs += row.humanDurationMs;
+            acc.agentDurationMs += row.agentDurationMs;
+            categoryTotals.set(row.category, acc);
+        }
+        const todayTotalDurationMs = Array.from(categoryTotals.values()).reduce(
+            (sum, acc) => sum + acc.durationMs,
             0,
         );
-        const categoriesToday = categoryRows
-            .map((row) => ({
-                category: row.category,
-                durationHours: row.durationMs / MS_PER_HOUR,
-                percentage:
-                    todayTotalDurationMs > 0
-                        ? (row.durationMs / todayTotalDurationMs) * 100
-                        : 0,
-                humanHours: row.humanDurationMs / MS_PER_HOUR,
-                agentHours: row.agentDurationMs / MS_PER_HOUR,
+        const categoriesToday = Array.from(categoryTotals.entries())
+            .map(([category, acc]) => ({
+                category,
+                durationHours: acc.durationMs / MS_PER_HOUR,
+                percentage: todayTotalDurationMs > 0 ? (acc.durationMs / todayTotalDurationMs) * 100 : 0,
+                humanHours: acc.humanDurationMs / MS_PER_HOUR,
+                agentHours: acc.agentDurationMs / MS_PER_HOUR,
             }))
             .sort((left, right) => right.durationHours - left.durationHours);
 
@@ -214,6 +320,101 @@ export const getDashboard = query({
             categoriesToday,
             generatedAt: new Date().toISOString(),
             timezone: TIMEZONE,
+            devices,
+            perDeviceDays,
+        };
+    },
+});
+
+const subProgramStatValidator = v.object({
+    subProgram: v.string(),
+    durationHours: v.number(),
+    formattedDuration: v.string(),
+    keystrokes: v.number(),
+    spanCount: v.number(),
+});
+
+// Terminal-pane sub-identity breakdown for one program (e.g. program=
+// "alacritty" -> subPrograms ["nvim", "cargo", "zsh", ...]), reading only
+// programDetailAgg (never spans). Either a single `dayKey`, an explicit
+// [startDayKey, endDayKey] range, or (all three omitted) just today.
+export const getProgramDetail = query({
+    args: {
+        program: v.string(),
+        device: v.optional(v.string()),
+        dayKey: v.optional(v.string()),
+        startDayKey: v.optional(v.string()),
+        endDayKey: v.optional(v.string()),
+    },
+    returns: v.object({
+        program: v.string(),
+        device: v.union(v.string(), v.null()),
+        dayKeys: v.array(v.string()),
+        totalDurationHours: v.number(),
+        totalFormattedDuration: v.string(),
+        totalKeystrokes: v.number(),
+        totalSpanCount: v.number(),
+        subPrograms: v.array(subProgramStatValidator),
+    }),
+    handler: async (ctx, args) => {
+        const dayKeys =
+            args.dayKey !== undefined
+                ? [args.dayKey]
+                : args.startDayKey !== undefined || args.endDayKey !== undefined
+                  ? dayKeysInRange(
+                        args.startDayKey ?? args.endDayKey!,
+                        args.endDayKey ?? args.startDayKey!,
+                    )
+                  : [todayDayKey()];
+
+        const rowsPerDay = await Promise.all(
+            dayKeys.map((dayKey) =>
+                ctx.db
+                    .query("programDetailAgg")
+                    .withIndex("by_day_device_program_sub", (q) => q.eq("dayKey", dayKey))
+                    .collect(),
+            ),
+        );
+
+        const device = args.device;
+        const totals = new Map<string, { durationMs: number; keysPressedCount: number; spanCount: number }>();
+        for (const rows of rowsPerDay) {
+            for (const row of rows) {
+                if (row.program !== args.program) continue;
+                if (device !== undefined && row.deviceName !== device) continue;
+                const acc = totals.get(row.subProgram) ?? {
+                    durationMs: 0,
+                    keysPressedCount: 0,
+                    spanCount: 0,
+                };
+                acc.durationMs += row.durationMs;
+                acc.keysPressedCount += row.keysPressedCount;
+                acc.spanCount += row.spanCount;
+                totals.set(row.subProgram, acc);
+            }
+        }
+
+        const subPrograms = Array.from(totals.entries())
+            .map(([subProgram, acc]) => ({
+                subProgram,
+                durationHours: acc.durationMs / MS_PER_HOUR,
+                formattedDuration: formatDuration(acc.durationMs),
+                keystrokes: acc.keysPressedCount,
+                spanCount: acc.spanCount,
+            }))
+            .sort((left, right) => right.durationHours - left.durationHours);
+
+        const totalDurationMs = Array.from(totals.values()).reduce((sum, acc) => sum + acc.durationMs, 0);
+
+        return {
+            program: args.program,
+            device: device ?? null,
+            dayKeys,
+            totalDurationHours: totalDurationMs / MS_PER_HOUR,
+            totalFormattedDuration: formatDuration(totalDurationMs),
+            totalKeystrokes: Array.from(totals.values()).reduce((sum, acc) => sum + acc.keysPressedCount, 0),
+            totalSpanCount: Array.from(totals.values()).reduce((sum, acc) => sum + acc.spanCount, 0),
+            subPrograms,
         };
     },
 });

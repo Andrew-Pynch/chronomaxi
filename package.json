@@ -5,13 +5,16 @@
     "type": "module",
     "scripts": {
         "convex:dev": "convex dev",
-        "convex:deploy": "convex deploy"
+        "convex:deploy": "convex deploy",
+        "rebuild-aggregates": "bun run scripts/rebuild-aggregates.ts",
+        "prepare": "husky"
     },
     "dependencies": {
         "convex": "^1.42.1"
     },
     "devDependencies": {
         "@types/node": "^26.1.1",
+        "husky": "^9.1.7",
         "typescript": "^5.5.4"
     }
 }

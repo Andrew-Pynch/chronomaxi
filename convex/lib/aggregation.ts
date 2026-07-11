@@ -18,7 +18,16 @@ export interface SpanForAggregation {
     category: string;
     isIdle: boolean;
     actor: string; // "human" | "agent:<name>"
+    // Canonical resolved device identity (post deviceAliases resolution,
+    // post actorOverride rewrite upstream) -- always concrete, never
+    // "unset", at the point a span is ingested or replayed. Every rollup
+    // bucket's identity now includes this field.
+    deviceName: string;
     programName: string;
+    // Terminal-pane sub-identity (e.g. "nvim", "cargo"), set only for
+    // terminal-class windows the tracker resolved a pane command for. When
+    // set, deriveSpanDeltas additionally emits a programDetail delta.
+    subProgram?: string;
     keysPressedCount: number;
     mouseMovementInMM: number;
     leftClickCount: number;
@@ -28,6 +37,7 @@ export interface SpanForAggregation {
 
 export interface DayAggDelta {
     dayKey: string;
+    deviceName: string;
     totalDurationMs: number;
     humanDurationMs: number;
     agentDurationMs: number;
@@ -42,6 +52,7 @@ export interface DayAggDelta {
 export interface HourAggDelta {
     dayKey: string;
     hour: number;
+    deviceName: string;
     totalDurationMs: number;
     humanDurationMs: number;
     agentDurationMs: number;
@@ -51,6 +62,7 @@ export interface HourAggDelta {
 
 export interface ProgramAggDelta {
     dayKey: string;
+    deviceName: string;
     program: string;
     durationMs: number;
     keysPressedCount: number;
@@ -59,10 +71,24 @@ export interface ProgramAggDelta {
 
 export interface CategoryAggDelta {
     dayKey: string;
+    deviceName: string;
     category: string;
     durationMs: number;
     humanDurationMs: number;
     agentDurationMs: number;
+    spanCount: number;
+}
+
+// Only emitted (see SpanAggregateDeltas.programDetail) when the source span
+// carries a subProgram. durationMs/keysPressedCount/spanCount follow the
+// exact same idle-contributes-zero semantics as every other bucket below.
+export interface ProgramDetailAggDelta {
+    dayKey: string;
+    deviceName: string;
+    program: string;
+    subProgram: string;
+    durationMs: number;
+    keysPressedCount: number;
     spanCount: number;
 }
 
@@ -71,6 +97,7 @@ export interface SpanAggregateDeltas {
     hour: HourAggDelta;
     program: ProgramAggDelta;
     category: CategoryAggDelta;
+    programDetail?: ProgramDetailAggDelta;
 }
 
 // --- America/Chicago local-time conversion ------------------------------
@@ -204,9 +231,22 @@ export function deriveSpanDeltas(
     const keysPressedCount = active ? span.keysPressedCount : 0;
     const spanCount = active ? 1 : 0;
 
+    const programDetail: ProgramDetailAggDelta | undefined = span.subProgram
+        ? {
+              dayKey,
+              deviceName: span.deviceName,
+              program: span.programName,
+              subProgram: span.subProgram,
+              durationMs,
+              keysPressedCount,
+              spanCount,
+          }
+        : undefined;
+
     return {
         day: {
             dayKey,
+            deviceName: span.deviceName,
             totalDurationMs: durationMs,
             humanDurationMs,
             agentDurationMs,
@@ -220,6 +260,7 @@ export function deriveSpanDeltas(
         hour: {
             dayKey,
             hour,
+            deviceName: span.deviceName,
             totalDurationMs: durationMs,
             humanDurationMs,
             agentDurationMs,
@@ -228,6 +269,7 @@ export function deriveSpanDeltas(
         },
         program: {
             dayKey,
+            deviceName: span.deviceName,
             program: span.programName,
             durationMs,
             keysPressedCount,
@@ -235,11 +277,13 @@ export function deriveSpanDeltas(
         },
         category: {
             dayKey,
+            deviceName: span.deviceName,
             category: span.category,
             durationMs,
             humanDurationMs,
             agentDurationMs,
             spanCount,
         },
+        programDetail,
     };
 }

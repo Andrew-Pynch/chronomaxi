@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as actorOverride from "../actorOverride.js";
 import type * as dashboard from "../dashboard.js";
 import type * as deviceAliases from "../deviceAliases.js";
 import type * as http from "../http.js";
@@ -15,8 +16,10 @@ import type * as lib_aggregation from "../lib/aggregation.js";
 import type * as lib_deviceAlias from "../lib/deviceAlias.js";
 import type * as lib_spanIngest from "../lib/spanIngest.js";
 import type * as migration from "../migration.js";
+import type * as rebuild from "../rebuild.js";
 import type * as spans from "../spans.js";
 import type * as sshSessions from "../sshSessions.js";
+import type * as timer from "../timer.js";
 
 import type {
   ApiFromModules,
@@ -25,6 +28,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  actorOverride: typeof actorOverride;
   dashboard: typeof dashboard;
   deviceAliases: typeof deviceAliases;
   http: typeof http;
@@ -32,8 +36,10 @@ declare const fullApi: ApiFromModules<{
   "lib/deviceAlias": typeof lib_deviceAlias;
   "lib/spanIngest": typeof lib_spanIngest;
   migration: typeof migration;
+  rebuild: typeof rebuild;
   spans: typeof spans;
   sshSessions: typeof sshSessions;
+  timer: typeof timer;
 }>;
 
 /**

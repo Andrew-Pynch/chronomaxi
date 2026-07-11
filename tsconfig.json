@@ -22,7 +22,8 @@
         ]
     },
     "include": [
-        "convex"
+        "convex",
+        "scripts"
     ],
     "exclude": [
         "convex/_generated"

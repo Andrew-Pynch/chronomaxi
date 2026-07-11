@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 // Machine-to-machine auth for both routes below: a single shared secret in
 // the Authorization header, per docs.convex.dev/auth's documented pattern
@@ -67,6 +67,7 @@ interface IngestSpanItem {
     windowId: string;
     programProcessName: string;
     programName: string;
+    subProgram?: string;
     browserTitle?: string;
     keysPressedCount?: number;
     mouseMovementInMM?: number;
@@ -196,6 +197,113 @@ http.route({
             internal.sshSessions.ingestSessionEvent,
             body,
         );
+
+        return new Response(JSON.stringify(result), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+        });
+    }),
+});
+
+// Mirrors convex/timer.ts's start args validator. "toggle" has no direct
+// Convex-function counterpart -- it is resolved here by reading current
+// running state first, then dispatching to start or pause.
+interface TimerActionBody {
+    action: "start" | "pause" | "toggle" | "reset";
+    durationMs?: number;
+}
+
+function isTimerActionBody(body: unknown): body is TimerActionBody {
+    if (typeof body !== "object" || body === null) return false;
+    if (
+        !("action" in body) ||
+        (body.action !== "start" &&
+            body.action !== "pause" &&
+            body.action !== "toggle" &&
+            body.action !== "reset")
+    )
+        return false;
+    if (
+        "durationMs" in body &&
+        body.durationMs !== undefined &&
+        typeof body.durationMs !== "number"
+    )
+        return false;
+    return true;
+}
+
+http.route({
+    path: "/timer",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+        const authError = checkBearerSecret(request);
+        if (authError) return authError;
+
+        const body = nullsToUndefined(await readJsonBody(request));
+        if (body === INVALID_JSON) {
+            return new Response("Invalid JSON body", { status: 400 });
+        }
+        if (!isTimerActionBody(body)) {
+            return new Response(
+                'Body must be { "action": "start"|"pause"|"toggle"|"reset", "durationMs"?: number }',
+                { status: 400 },
+            );
+        }
+
+        let result;
+        if (body.action === "start") {
+            result = await ctx.runMutation(api.timer.start, { durationMs: body.durationMs });
+        } else if (body.action === "pause") {
+            result = await ctx.runMutation(api.timer.pause, {});
+        } else if (body.action === "reset") {
+            result = await ctx.runMutation(api.timer.reset, {});
+        } else {
+            const current = await ctx.runQuery(api.timer.get, {});
+            result = current.running
+                ? await ctx.runMutation(api.timer.pause, {})
+                : await ctx.runMutation(api.timer.start, { durationMs: body.durationMs });
+        }
+
+        return new Response(JSON.stringify(result), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+        });
+    }),
+});
+
+// Mirrors convex/actorOverride.ts's set args validator.
+interface ActorOverrideBody {
+    deviceName: string;
+    active: boolean;
+    actor?: string;
+}
+
+function isActorOverrideBody(body: unknown): body is ActorOverrideBody {
+    if (typeof body !== "object" || body === null) return false;
+    if (!("deviceName" in body) || typeof body.deviceName !== "string") return false;
+    if (!("active" in body) || typeof body.active !== "boolean") return false;
+    return true;
+}
+
+http.route({
+    path: "/actor-override",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+        const authError = checkBearerSecret(request);
+        if (authError) return authError;
+
+        const body = nullsToUndefined(await readJsonBody(request));
+        if (body === INVALID_JSON) {
+            return new Response("Invalid JSON body", { status: 400 });
+        }
+        if (!isActorOverrideBody(body)) {
+            return new Response(
+                'Body must be { "deviceName": string, "active": boolean, "actor"?: string }',
+                { status: 400 },
+            );
+        }
+
+        const result = await ctx.runMutation(api.actorOverride.set, body);
 
         return new Response(JSON.stringify(result), {
             status: 200,

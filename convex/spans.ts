@@ -17,6 +17,9 @@ const ingestSpanValidator = v.object({
     windowId: v.string(),
     programProcessName: v.string(),
     programName: v.string(),
+    // Terminal-pane sub-identity (e.g. "nvim", "cargo"); absent from
+    // trackers that predate this field, and unset for non-terminal windows.
+    subProgram: v.optional(v.string()),
     browserTitle: v.optional(v.string()),
     keysPressedCount: v.optional(v.number()),
     mouseMovementInMM: v.optional(v.number()),
@@ -39,12 +42,27 @@ export const ingestSpanBatch = internalMutation({
 
         for (const item of args.batch) {
             const deviceName = await resolveCanonicalDevice(ctx, item.deviceName);
+
+            // While an actorOverrides row is active for this (canonical)
+            // device, every span it produces is attributed to the
+            // override's actor instead of whatever the tracker itself
+            // reported -- e.g. an unattended agent session running on a
+            // device that would otherwise be misclassified as human
+            // activity. This rewrite happens BEFORE insertSpanAndAggregate
+            // derives deltas, so the persisted span row and every
+            // aggregate bucket agree on the override.
+            const override = await ctx.db
+                .query("actorOverrides")
+                .withIndex("by_deviceName", (q) => q.eq("deviceName", deviceName))
+                .unique();
+            const actor = override?.active ? override.actor : item.actor;
+
             const wasInserted = await insertSpanAndAggregate(ctx, {
                 sourceKey: item.sourceId,
                 rawDeviceName: item.deviceName,
                 deviceName,
-                actor: item.actor,
-                agentName: agentNameFromActor(item.actor),
+                actor,
+                agentName: agentNameFromActor(actor),
                 startedAt: item.createdAt,
                 endedAt: item.createdAt + item.durationMs,
                 durationMs: item.durationMs,
@@ -53,6 +71,7 @@ export const ingestSpanBatch = internalMutation({
                 windowId: item.windowId,
                 programProcessName: item.programProcessName,
                 programName: item.programName,
+                subProgram: item.subProgram,
                 browserTitle: item.browserTitle,
                 keysPressedCount: item.keysPressedCount ?? 0,
                 mouseMovementInMM: item.mouseMovementInMM ?? 0,
