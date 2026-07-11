@@ -40,6 +40,14 @@ SCHEMA.md for the rules that keep this file current.
   contract, redesigned dashboard). Full comparison exhibit at
   [assets/ui-overhaul-comparison.html](assets/ui-overhaul-comparison.html) (screenshots +
   architecture diagrams + bug-fix table).
+- [pages/2026-07-10-batch-two.md](pages/2026-07-10-batch-two.md) — Batch two
+  (evening wave): per-device aggregate keys + prod backfill (45,832 spans),
+  subProgram terminal drill-down end to end (evdev, Hyprland event socket,
+  tmux hooks, programDetailAgg, drillable UI), convex-backed focus timer +
+  actor override + ssh sessions panel, device-filtered dashboard with tailnet
+  whoami auto-default, lil-timmy tracker live, fleet-deploy pipeline
+  (post-commit auto-push + ordered deploy), ingest secret rotation, and the
+  process-kill ops rules three incidents bought.
 
 ## Entities
 

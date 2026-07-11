@@ -60,3 +60,14 @@ frontmatter description addition) and created
 CMX_AGENT_NAME convention, fail-open semantics) verbatim from that proposal —
 both files live outside this repo (~/.agents), not committed here, per board
 row 8 approval.
+
+## [2026-07-10] ingest | batch two filed (fleet polish and drill-down)
+
+Created pages/2026-07-10-batch-two.md (per-device aggregates + backfill,
+subProgram drill-down, timer/actorOverride/sshSessions, fleet-deploy pipeline,
+lil-timmy live, secret rotation, incident-bought kill rules). Updated
+architecture.md (pipeline, capture overhaul, schema section, batch-two
+pointer), operations.md (bertha frontend build env row, ron additions table,
+lil-timmy LIVE section, ops rules, morning-deferred list resolved), and
+INDEX.md (Events entry). Batch commits: 213b5a6, a1a8ad0, 05ab30b, 672150c,
+0261cb1.

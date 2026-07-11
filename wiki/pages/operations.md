@@ -21,10 +21,11 @@ covered there.
 | `backend` | docker | `3210` (sync), `3211` (HTTP actions/ingest) | `deploy/.env` | Convex backend, digest-pinned image |
 | `dashboard` | docker | `6791` | `deploy/.env` | Convex's own admin UI — not the chronomaxi product dashboard, not tailscale-served |
 | `export-cleanup` | docker | none | — | Alpine sidecar, daily prune of `/convex/data/storage/exports` >3d |
-| chronomaxi tracker (bertha's own) | systemd user unit, `chronomaxi-tracker.service` template | none (outbound only) | unit `Environment=` lines: `CHRONOMAXI_INGEST_URL=http://big-bertha:3211`, `CHRONOMAXI_INGEST_SECRET`, `CHRONOMAXI_ACTOR=human`, `CHRONOMAXI_DEVICE_NAME=big-bertha` | needs the active local GNOME-on-X11 seat for full input capture (see `tailnet` skill) |
+| chronomaxi tracker (bertha's own) | systemd user unit, `chronomaxi-tracker.service` template | none (outbound only) | `EnvironmentFile=~/.config/chronomaxi/env` (600 perms): `CHRONOMAXI_INGEST_URL=http://big-bertha:3211`, `CHRONOMAXI_INGEST_SECRET` (rotated 2026-07-10), `CHRONOMAXI_ACTOR=human`, `CHRONOMAXI_DEVICE_NAME=big-bertha` | needs the active local GNOME-on-X11 seat for full input capture (see `tailnet` skill) |
 | NERV dashboard (product) | systemd unit, `chronomaxi-web.service` template | `3001` (loopback/tailnet) | repo-root `.env.local`: `NEXT_PUBLIC_CONVEX_URL=http://big-bertha:3210` | `bun run start`, `WorkingDirectory=frontend/` |
+| bertha frontend build env | `frontend/.env.local` (600) | — | `NEXT_PUBLIC_CONVEX_URL=https://big-bertha.tail3f4961.ts.net:3210` (TLS proxy, baked at build time), `CHRONOMAXI_TAILNET_MAP=<ip=name,...>` | REQUIRED for `bun run build`; next reads env from `frontend/`, never the repo root. `deploy/fleet-deploy.sh` preflights this. |
 | tailscale serve | OS-level | `8443` -> `localhost:3001` | — | `443` already taken by another app on bertha, hence the dedicated port |
-| ssh attribution hooks | `~/.config/chronomaxi/{chronomaxi-attribution.zsh,chronomaxi-ssh-hook.sh}` | none | `~/.config/chronomaxi/env` (600 perms, never committed) | installed via `deploy/attribution/install.sh`; **not yet run** — gated on Andrew per go/strike board |
+| ssh attribution hooks | `~/.config/chronomaxi/{chronomaxi-attribution.zsh,chronomaxi-ssh-hook.sh}` | none | `~/.config/chronomaxi/env` (600 perms, never committed) | installed on all three hosts (title hook + LocalCommand verified live; timmy verified 2026-07-10 with server-side 200s) |
 | nightly backup cron | cron | — | — | `npx convex export` + `rsync` to `big-ron:/backups/chronomaxi/`, see Backup/restore below |
 
 Pre-existing non-chronomaxi services on bertha (hermes, atlas-api/web/slack,
@@ -48,11 +49,34 @@ tailscale serve above.
 `~/backups/chronomaxi` already exists on big-ron (receives the nightly
 rsynced export zips from bertha).
 
-## lil-timmy (macOS) — DEFERRED, do not touch this rollout
+Ron additions (2026-07-10 batch two):
 
-Board decision: **all** lil-timmy/macOS work is deferred out of this
-rollout. Nothing below is actioned; listed only so the deferred scope is
-visible in one place (see "Morning-deferred list").
+| Piece | Where | Notes |
+|---|---|---|
+| fleet deploy | `deploy/fleet-deploy.sh` + `.husky/post-commit` | any commit on main auto-pushes and deploys the fleet async; skip with `HUSKY=0` or `CHRONOMAXI_NO_DEPLOY=1`; log `~/.local/state/chronomaxi/fleet-deploy.log`; state `~/.local/state/chronomaxi/fleet-last-deployed-rev`; ordering: convex+frontend on bertha before any tracker restart |
+| chronomaxi-cli | `deploy/bin/chronomaxi-cli` -> `~/.local/bin/chronomaxi-cli` | `timer start|pause|toggle|reset [min]`, `actor on|off|toggle`; hits `/timer` and `/actor-override` with the env-file secret |
+| hypr binds | `~/.config/hypr/bindings.conf` (SUPER CTRL SHIFT D/T/A) + windowrule in `hyprland.conf` | dashboard webapp class `brave-big-bertha.tail3f4961.ts.net__-Default` pinned to workspace 3 on DP-2 (verified live) |
+| drilldown hooks | `deploy/drilldown/install.sh` (installed) | zsh preexec/precmd + tmux hooks write `~/.local/state/chronomaxi/foreground` for subProgram resolution |
+| evdev input counts | PENDING one sudo | `/etc/udev/rules.d/70-chronomaxi-input.rules`: `SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"` (70- prefix load-bearing); tracker self-heals within 60s |
+
+## lil-timmy (macOS) — LIVE since 2026-07-10 batch two
+
+| Service | Type | Notes |
+|---|---|---|
+| chronomaxi tracker | LaunchAgent `com.pynchlabs.chronomaxi-tracker` (gui domain, `~/Library/LaunchAgents/`) | first span flushed 2026-07-10 21:07 CDT; capture degraded (no titles/input counts) until the Accessibility/Input Monitoring grant is clicked on the machine. The substituted plist EMBEDS the ingest secret: regenerate the plist on every rotation. |
+| tracker env | `~/.config/chronomaxi/env` (600) | secret rotated 2026-07-10, checksum-verified against bertha |
+| attribution hooks | zsh + ssh LocalCommand (via `deploy/attribution/install.sh`) | verified with server-side 200s |
+| Brave homepage/bookmark | pending-marker + launchd retry (analog of ron's systemd timer) | applies on first launch-while-closed |
+
+## Ops rules (bought by incidents, 2026-07-10)
+
+- Verify process identity (cwd, owner, parentage, purpose) BEFORE any kill.
+  Never signal browser processes (single-instance handoff makes any brave pid
+  the user's whole session). Never pkill by pattern; exact PID only.
+- Never restart a tracker before the convex backend serving its wire format is
+  deployed (`deploy/fleet-deploy.sh` encodes this ordering).
+- Secret rotation touchpoints: convex deployment env, `~/.config/chronomaxi/env`
+  on all three machines, AND the timmy LaunchAgent plist (embedded copy).
 
 ## Backup / restore
 
@@ -63,34 +87,19 @@ migration's own backup/verification/rollback procedure (checkpoint/resume,
 cold archive rule, pre-import snapshot, `verify.ts`):
 [../../migration/README.md](../../migration/README.md).
 
-## Morning-deferred list
+## Morning-deferred list (resolved 2026-07-10 batch two)
 
-Items 1-4 require lil-timmy, which is not to be touched this rollout.
-Items 5-6 are big-ron items blocked on sudo/user interaction:
-
-1. **timmy tracker install** — bring up the macOS LaunchAgent
-   (`deploy/launchd/com.pynchlabs.chronomaxi-tracker.plist`, `gui/<uid>`
-   domain, substituted `${...}` placeholders) on lil-timmy.
-2. **macOS build verify** — cross-compile/build the tracker binary for
-   Apple Silicon and confirm it runs standalone before wiring it into the
-   LaunchAgent.
-3. **Accessibility / Input Monitoring permission grant** — macOS System
-   Settings dialog the LaunchAgent needs at first run; a LaunchAgent (not a
-   LaunchDaemon) is required specifically because this grant only works
-   inside the user's Aqua GUI session.
-4. **timmy brave/hooks** — verify the macOS Brave Browser category-matching
-   normalization (`tracker/src/logger_v4.rs:527-543`, substring match on
-   `localizedName` e.g. `"Brave Browser"`, distinct from the lowercase
-   `WM_CLASS` values Hyprland/X11 report) against a live timmy tracker, and
-   install the session-attribution hooks
-   (`deploy/attribution/install.sh`) on timmy's zsh/ssh config.
-5. **big-ron Wayland evdev input capture** — keystroke/click counts on
-   Hyprland need read access to `/dev/input/event*` (root:input 660; user
-   `andrew` is not in the `input` group). One sudo command
-   (`sudo usermod -aG input andrew` + relogin, or a udev ACL rule), then a
-   tracker capture-backend addition. Deferred per user's flag-for-morning
-   instruction.
-6. **big-ron Brave homepage/bookmark** — Brave was running during rollout;
-   `chronomaxi-brave-configure.timer` fires daily at 07:45 and applies the
-   change on the first morning Brave is closed (see
-   `~/.config/chronomaxi/brave-pending.md`).
+1. **timmy tracker install** — DONE: LaunchAgent bootstrapped in `gui/<uid>`,
+   first span flushed 21:07 CDT.
+2. **macOS build verify** — DONE: first successful macOS build, from git at
+   0261cb1, runs standalone.
+3. **Accessibility / Input Monitoring grant** — STILL PENDING the click on
+   timmy's own screen; capture degraded (no titles/input counts) until then.
+4. **timmy brave/hooks** — attribution hooks DONE (verified 200s); Brave
+   `localizedName` category normalization still unverified against a
+   post-grant tracker (needs item 3 first).
+5. **big-ron Wayland evdev input capture** — code DONE (batch two); the udev
+   uaccess rule is STILL PENDING one sudo (see Ron additions table above).
+6. **big-ron Brave homepage/bookmark** — unchanged: `chronomaxi-brave-configure.timer`
+   applies on the first morning Brave is closed
+   (`~/.config/chronomaxi/brave-pending.md`).

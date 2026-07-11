@@ -25,8 +25,9 @@ tracker (big-ron | big-bertha | lil-timmy, one instance per machine)
     -> decoupled ingest flusher (tokio task, tracker/src/ingest/mod.rs)
       -> HTTP POST /ingest, bearer secret (convex/http.ts)
         -> Convex mutation insertSpanAndAggregate (convex/spans.ts, convex/lib/spanIngest.ts)
-          -> spans (append-only) + dayAgg/hourAgg/programAgg/categoryAgg
-             (materialized rollups, convex/schema.ts, convex/lib/aggregation.ts)
+        -> spans (append-only) + dayAgg/hourAgg/programAgg/categoryAgg/programDetailAgg
+           (materialized rollups, per-device bucket keys since 2026-07-10,
+           convex/schema.ts, convex/lib/aggregation.ts)
             -> dashboard.getDashboard query, reads ONLY the aggregates (convex/dashboard.ts)
               -> NERV Next.js dashboard, convex-native (frontend/src/app/_components/DashboardShell.tsx)
 ```
@@ -46,6 +47,15 @@ binary, platform-selected backend — `select_backend`,
 Wayland/X11, a separate macOS backend on timmy). Per-tick capture logic is
 unchanged from the pre-migration design (see historical-data.md's linked
 pipeline for the capture details); what changed is the sink:
+
+2026-07-10 batch two overhauled the linux capture path: evdev input counting
+(tracker/src/input_evdev.rs, EACCES-tolerant with 60s retry), window-title
+changes count as idle-breaking activity (tracker/src/idle_tracking.rs), the
+Hyprland backend consumes .socket2.sock events instead of per-tick hyprctl
+(tracker/src/hypr_events.rs, addresses normalized for the missing 0x prefix),
+and terminal focus resolves a tmux subProgram (push file from
+deploy/drilldown/ hooks, else tmux IPC). Details:
+[2026-07-10-batch-two.md](2026-07-10-batch-two.md).
 
 - Every completed span is written **synchronously, local-disk-only** to a
   durable spool (`tracker/src/spool/mod.rs`) before any network attempt —
@@ -69,7 +79,7 @@ pipeline for the capture details); what changed is the sink:
 - Deployment mechanism differs by platform: Linux hosts (big-ron, big-bertha)
   use the templated systemd user unit `chronomaxi-tracker.service` (repo
   root, `${...}` placeholders substituted per host at install time); macOS
-  (lil-timmy, **deferred this rollout**) uses the LaunchAgent template
+  (lil-timmy, LIVE since 2026-07-10 batch two) uses the LaunchAgent template
   `deploy/launchd/com.pynchlabs.chronomaxi-tracker.plist` — a *LaunchAgent*
   specifically, not a LaunchDaemon, because AX/WindowServer and the
   Accessibility/Input Monitoring permission dialogs both require running
@@ -128,14 +138,21 @@ default, a missing env var fails closed):
   (`by_sourceKey` unique index). `actor` is `"human"` or `"agent:<name>"`;
   `deviceName` is the canonical name after `deviceAliases` resolution
   (`rawDeviceName` is kept as received, for audit).
-- `dayAgg` / `hourAgg` / `programAgg` / `categoryAgg` — small materialized
-  rollups computed incrementally via `convex/lib/aggregation.ts`'s
-  `deriveSpanDeltas`, the single source of truth for span-to-aggregate math.
+- `dayAgg` / `hourAgg` / `programAgg` / `categoryAgg` / `programDetailAgg` —
+  small materialized rollups computed incrementally via
+  `convex/lib/aggregation.ts`'s `deriveSpanDeltas`, the single source of truth
+  for span-to-aggregate math. Since 2026-07-10 every bucket key includes a
+  required `deviceName` (composite indexes, e.g. `by_dayKey_device`), and
+  `programDetailAgg` (program x subProgram) feeds the Programs drill-down.
   Both the live ingest mutation (`convex/spans.ts`) and the historical
   migration import mutation (`convex/migration.ts`) call it and apply the
   result the same way (upsert-by-key, add-to-existing-or-insert).
-- `convex/dashboard.ts`'s `getDashboard()` query reads **only** these four
-  aggregate tables, never `spans` — stays fast and live-subscribable
+  `scripts/rebuild-aggregates.ts` can rebuild every bucket from spans (paged
+  wipe+replay, watermarked, resumable); it ran once in prod for the
+  per-device backfill.
+- `convex/dashboard.ts`'s `getDashboard()` query reads **only** these
+  aggregate tables (optionally device-filtered), never `spans` — stays fast
+  and live-subscribable
   regardless of how many spans have accumulated.
 - `deviceAliases` (`convex/lib/deviceAlias.ts`'s `resolveCanonicalDevice`) —
   e.g. resolves the pre-rename hostname `andrew-MS-7B86` to the canonical
@@ -277,3 +294,15 @@ updates only; `install.sh` runs later, by Andrew, per machine.
   attribution" section for the agent-facing convention, and
   `deploy/attribution/README.md` for the full design/threat model/
   verification matrix.
+
+## 2026-07-10 batch two (fleet polish and drill-down)
+
+Superset summary in [2026-07-10-batch-two.md](2026-07-10-batch-two.md):
+per-device aggregates + backfill, subProgram drill-down end to end, timer /
+actorOverride / sshSessions APIs (`convex/timer.ts`,
+`convex/actorOverride.ts`, HTTP routes `/timer` and `/actor-override`),
+device-filtered dashboard with whoami auto-default, lil-timmy tracker live,
+and the fleet deploy pipeline: `deploy/fleet-deploy.sh` fired async by
+`.husky/post-commit` on main (convex/frontend on bertha strictly before any
+tracker restart; health checks; state file
+`~/.local/state/chronomaxi/fleet-last-deployed-rev`).
