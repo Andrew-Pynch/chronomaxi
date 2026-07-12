@@ -46,7 +46,7 @@ set -euo pipefail
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MONOREPO_DIR="$(git -C "$PACKAGE_DIR" rev-parse --show-toplevel)"
 PACKAGE_PREFIX="${PACKAGE_DIR#"$MONOREPO_DIR"/}"
-PUBLIC_REPO="https://github.com/andrew-pynch/chronomaxi"
+PUBLIC_REPO="https://github.com/Andrew-Pynch/chronomaxi.git"
 STATE_DIR="$HOME/.local/state/chronomaxi"
 STATE_FILE="$STATE_DIR/fleet-last-deployed-rev"
 LOG_FILE="$STATE_DIR/fleet-deploy.log"
@@ -87,10 +87,10 @@ preflight_source() {
         branch=$(git -C "$MONOREPO_DIR" symbolic-ref --quiet --short HEAD) \
             || die "deploy requires the monorepo main branch, not detached HEAD"
         [ "$branch" = "main" ] || die "deploy requires main, got $branch"
-        git -C "$MONOREPO_DIR" diff --quiet \
-            || die "deploy requires a clean worktree"
-        git -C "$MONOREPO_DIR" diff --cached --quiet \
-            || die "deploy requires a clean index"
+        git -C "$MONOREPO_DIR" diff --quiet -- "$PACKAGE_PREFIX" \
+            || die "deploy requires a clean Chronomaxi worktree"
+        git -C "$MONOREPO_DIR" diff --cached --quiet -- "$PACKAGE_PREFIX" \
+            || die "deploy requires a clean Chronomaxi index"
     fi
 }
 
