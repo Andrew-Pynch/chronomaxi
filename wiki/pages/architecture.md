@@ -302,7 +302,8 @@ per-device aggregates + backfill, subProgram drill-down end to end, timer /
 actorOverride / sshSessions APIs (`convex/timer.ts`,
 `convex/actorOverride.ts`, HTTP routes `/timer` and `/actor-override`),
 device-filtered dashboard with whoami auto-default, lil-timmy tracker live,
-and the fleet deploy pipeline: `deploy/fleet-deploy.sh` fired async by
-`.husky/post-commit` on main (convex/frontend on bertha strictly before any
-tracker restart; health checks; state file
-`~/.local/state/chronomaxi/fleet-last-deployed-rev`).
+and the explicit fleet deploy pipeline: `bun run deploy:fleet` from the
+canonical monorepo package. It pushes private monorepo main, publishes the
+Chronomaxi subtree to the public mirror, deploys Convex/frontend on Bertha
+before any tracker restart, runs health checks, and records the successful
+monorepo revision in `~/.local/state/chronomaxi/fleet-last-deployed-rev`.

@@ -1,19 +1,27 @@
 # Chrono Maxi
 
-Chrono Maxi is a personal time tracking software that helps you monitor and analyze how you spend your time on your computer. It consists of a Rust backend that captures your activity data and a Next.js frontend for visualizing and interacting with the data.
+Chrono Maxi is Andrew's cross-device activity and session-attribution system.
+Rust trackers on Ron, Bertha, and Timmy spool activity to a self-hosted Convex
+deployment. The Next.js dashboard visualizes per-device time, programs,
+categories, input activity, SSH sessions, timers, and drill-down state.
 
-Use it to generate stats like the real time stats that chronomaxi powers on my personal website, [andrewpynch.com](https://andrewpynch.com)
-![image](https://github.com/user-attachments/assets/8380c59d-b8c7-4653-8481-f3b973fb49c4)
-![image](https://github.com/user-attachments/assets/85b4a781-2718-408a-9afe-88d1a5a32d2c)
+Canonical source lives at `packages/chronomaxi/` in the private personal agent
+monorepo. `Andrew-Pynch/chronomaxi` is a one-way public subtree mirror. Public
+issues and pull requests remain useful as proposals, but changes land in the
+canonical package and are then republished.
+
+Chronomaxi also powers the real-time statistics on
+[andrewpynch.com](https://andrewpynch.com).
 
 ## Features
 
-- Captures active window titles and timestamps using system-specific libraries.
-- Stores activity data in a SQLite database.
-- Calculates time spent on different activities and programs.
-- Provides a RESTful API for the frontend to fetch activity data.
-- Offers a user-friendly frontend interface to view and analyze time tracking data.
-- Supports different time frames for data visualization (daily, weekly, etc.).
+- Captures active windows, program identity, idle state, and supported input counts.
+- Spools tracker data locally and flushes it to central Convex ingest.
+- Separates activity by device, human actor, and named agent.
+- Correlates terminal title tags with SSH lifecycle sessions.
+- Provides a NERV-styled dashboard with device filters and program drill-down.
+- Deploys explicitly with `bun run deploy:fleet`, publishing the public mirror
+  before updating backend, frontend, and trackers.
 
 ## Prerequisites
 

@@ -11,11 +11,9 @@ registered at `wiki/`, not repo root). Never edit files under `wiki/raw/` once w
 
 ## Fleet deploy
 
-Landing a commit on `main` auto-pushes to origin and fleet-deploys via
-`.husky/post-commit` (async, never blocks the commit) -- see
-`deploy/fleet-deploy.sh` for the ordering guarantee (Convex backend before
-trackers). For intermediate/WIP commits on `main` you don't want deployed
-yet, use `HUSKY=0 git commit ...` (skips all husky hooks) or
-`CHRONOMAXI_NO_DEPLOY=1 git commit ...` (skips just the deploy). Manual
-deploy: `deploy/fleet-deploy.sh` (add `CHRONOMAXI_DRY_RUN=1` to preview).
-Log: `~/.local/state/chronomaxi/fleet-deploy.log`.
+Chronomaxi deploys only when explicitly requested. From the canonical package,
+run `CHRONOMAXI_DRY_RUN=1 bun run deploy:fleet` to preview or
+`bun run deploy:fleet` to publish the public subtree mirror and update the
+fleet. The script preserves the load-bearing order: Convex backend and
+frontend before tracker restarts. Successful revisions are recorded in
+`~/.local/state/chronomaxi/fleet-last-deployed-rev`.

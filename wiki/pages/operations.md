@@ -1,17 +1,15 @@
 ---
 title: Operations (central chronomaxi)
-date: 2026-07-10
+date: 2026-07-12
 type: entity
 sources: []
 ---
 
 # Operations (central chronomaxi)
 
-Service inventory and day-2 runbook pointers for the ROLLOUT-phase central
-architecture — see [architecture.md](architecture.md) for what each piece
-does and why. This page is the "what's running where, on what port, with
-which env file" index; it does not re-derive design decisions already
-covered there.
+Service inventory and day-2 runbook pointers for the live central architecture.
+See [architecture.md](architecture.md) for what each piece does and why. This
+page records what runs where, on which port, and from which canonical path.
 
 ## big-bertha (central host, production)
 
@@ -21,9 +19,9 @@ covered there.
 | `backend` | docker | `3210` (sync), `3211` (HTTP actions/ingest) | `deploy/.env` | Convex backend, digest-pinned image |
 | `dashboard` | docker | `6791` | `deploy/.env` | Convex's own admin UI — not the chronomaxi product dashboard, not tailscale-served |
 | `export-cleanup` | docker | none | — | Alpine sidecar, daily prune of `/convex/data/storage/exports` >3d |
-| chronomaxi tracker (bertha's own) | systemd user unit, `chronomaxi-tracker.service` template | none (outbound only) | `EnvironmentFile=~/.config/chronomaxi/env` (600 perms): `CHRONOMAXI_INGEST_URL=http://big-bertha:3211`, `CHRONOMAXI_INGEST_SECRET` (rotated 2026-07-10), `CHRONOMAXI_ACTOR=human`, `CHRONOMAXI_DEVICE_NAME=big-bertha` | needs the active local GNOME-on-X11 seat for full input capture (see `tailnet` skill) |
-| NERV dashboard (product) | systemd unit, `chronomaxi-web.service` template | `3001` (loopback/tailnet) | repo-root `.env.local`: `NEXT_PUBLIC_CONVEX_URL=http://big-bertha:3210` | `bun run start`, `WorkingDirectory=frontend/` |
-| bertha frontend build env | `frontend/.env.local` (600) | — | `NEXT_PUBLIC_CONVEX_URL=https://big-bertha.tail3f4961.ts.net:3210` (TLS proxy, baked at build time), `CHRONOMAXI_TAILNET_MAP=<ip=name,...>` | REQUIRED for `bun run build`; next reads env from `frontend/`, never the repo root. `deploy/fleet-deploy.sh` preflights this. |
+| chronomaxi tracker (Bertha) | systemd user unit | none (outbound only) | `EnvironmentFile=~/.config/chronomaxi/env` (600 perms) | binary and working directory under `~/work/personal-agent-monorepo/packages/chronomaxi/tracker`; active local GNOME-on-X11 seat required for full input capture |
+| NERV dashboard (product) | systemd user unit | `3001` (loopback/tailnet) | package-root `.env.local` plus `frontend/.env.local` at build time | `bun run start` from `~/work/personal-agent-monorepo/packages/chronomaxi/frontend` |
+| Bertha frontend build env | `frontend/.env.local` (600) | none | TLS Convex URL and tailnet device map | required for `bun run build`; `deploy/fleet-deploy.sh` preflights it |
 | tailscale serve | OS-level | `8443` -> `localhost:3001` | — | `443` already taken by another app on bertha, hence the dedicated port |
 | ssh attribution hooks | `~/.config/chronomaxi/{chronomaxi-attribution.zsh,chronomaxi-ssh-hook.sh}` | none | `~/.config/chronomaxi/env` (600 perms, never committed) | installed on all three hosts (title hook + LocalCommand verified live; timmy verified 2026-07-10 with server-side 200s) |
 | nightly backup cron | cron | — | — | `npx convex export` + `rsync` to `big-ron:/backups/chronomaxi/`, see Backup/restore below |
@@ -41,10 +39,9 @@ tailscale serve above.
 | local validation Convex stack | docker compose, `~/personal/chronomaxi/deploy` | `13210` (sync), `13211` (HTTP actions), `16791` (dashboard) | `deploy/.env` | pre-cutover smoke-test stack only; stays up until cutover completes, then `docker compose down` (volumes kept), NOT the standby deployment below |
 | standby Convex deployment (post-cutover) | docker compose, own compose project | own ports (distinct `INSTANCE_NAME`/`INSTANCE_SECRET`) | separate `.env.local` pointed at the standby URL+admin key | brought up once per `deploy/BACKUP-RUNBOOK.md`'s "One-time standby bring-up" section; schema/functions pushed via `npx convex deploy --deployment <standby>` (backup ZIPs carry table data only) |
 | nightly restore cron (post-cutover) | cron | — | — | `npx convex import --replace-all <latest>.zip -y --deployment <standby>`, RPO ~24h, no multi-master |
-| `chronomaxi-web.service` (OLD) | systemd | `3001` | unit env | pre-migration Prisma/sqlite dashboard; **keep running** until the cutover step for big-ron explicitly retires it |
-| `chronomaxi-tracker.service` (OLD) | systemd | none | unit env | writes to local sqlite (pre-migration path); **keep running** until big-ron's device is cut over per the migration's HARD ORDERING GATE |
-| chronomaxi tracker (NEW, post-cutover) | systemd user unit, same template, repointed | none (outbound only) | `CHRONOMAXI_INGEST_URL=http://big-bertha:3211`, shared `CHRONOMAXI_INGEST_SECRET`, `CHRONOMAXI_ACTOR=human`, `CHRONOMAXI_DEVICE_NAME=big-ron` | only after `bun run verify.ts` prints `ALL CHECKS PASSED` for `ron-live`/`ron-demo` — see [architecture.md](architecture.md#5-historical-migration-one-time-gated) |
-| ssh attribution hooks | same as bertha | — | `~/.config/chronomaxi/env` | same install.sh, run independently per host |
+| retired local dashboard | disabled systemd unit | none | none | product dashboard runs on Bertha |
+| chronomaxi tracker | systemd user unit | none (outbound only) | `~/.config/chronomaxi/env` | binary and working directory under `~/work/personal-agent-monorepo/packages/chronomaxi/tracker`; verified flushing after the 2026-07-12 cutover |
+| ssh attribution and drill-down hooks | installed scripts plus zsh, SSH, and tmux config blocks | none | `~/.config/chronomaxi/env` | canonical copies installed from `packages/chronomaxi/deploy/`; title actors and tmux quote preservation verified live |
 
 `~/backups/chronomaxi` already exists on big-ron (receives the nightly
 rsynced export zips from bertha).
@@ -53,7 +50,7 @@ Ron additions (2026-07-10 batch two):
 
 | Piece | Where | Notes |
 |---|---|---|
-| fleet deploy | `deploy/fleet-deploy.sh` + `.husky/post-commit` | any commit on main auto-pushes and deploys the fleet async; skip with `HUSKY=0` or `CHRONOMAXI_NO_DEPLOY=1`; log `~/.local/state/chronomaxi/fleet-deploy.log`; state `~/.local/state/chronomaxi/fleet-last-deployed-rev`; ordering: convex+frontend on bertha before any tracker restart |
+| fleet deploy | `bun run deploy:fleet` from `packages/chronomaxi/` | explicit only; pushes private monorepo main, publishes the public subtree mirror, then deploys Convex/frontend before trackers; no repository commit hook |
 | chronomaxi-cli | `deploy/bin/chronomaxi-cli` -> `~/.local/bin/chronomaxi-cli` | `timer start|pause|toggle|reset [min]`, `actor on|off|toggle`; hits `/timer` and `/actor-override` with the env-file secret |
 | hypr binds | `~/.config/hypr/bindings.conf` (SUPER CTRL SHIFT D/T/A) + windowrule in `hyprland.conf` | dashboard webapp class `brave-big-bertha.tail3f4961.ts.net__-Default` pinned to workspace 3 on DP-2 (verified live) |
 | drilldown hooks | `deploy/drilldown/install.sh` (installed) | zsh preexec/precmd + tmux hooks write `~/.local/state/chronomaxi/foreground` for subProgram resolution |
@@ -63,9 +60,9 @@ Ron additions (2026-07-10 batch two):
 
 | Service | Type | Notes |
 |---|---|---|
-| chronomaxi tracker | LaunchAgent `com.pynchlabs.chronomaxi-tracker` (gui domain, `~/Library/LaunchAgents/`) | first span flushed 2026-07-10 21:07 CDT; capture degraded (no titles/input counts) until the Accessibility/Input Monitoring grant is clicked on the machine. The substituted plist EMBEDS the ingest secret: regenerate the plist on every rotation. |
-| tracker env | `~/.config/chronomaxi/env` (600) | secret rotated 2026-07-10, checksum-verified against bertha |
-| attribution hooks | zsh + ssh LocalCommand (via `deploy/attribution/install.sh`) | verified with server-side 200s |
+| chronomaxi tracker | LaunchAgent `com.pynchlabs.chronomaxi-tracker` | binary and working directory under `~/work/personal-agent-monorepo/packages/chronomaxi/tracker`; running and flushing after the 2026-07-12 cutover |
+| tracker env | `~/.config/chronomaxi/env` (600) | shared ingest credential rotated and verified 2026-07-12 |
+| attribution and drill-down hooks | installed zsh, SSH LocalCommand, and tmux hooks | actor resolution, SSH config, script copies, and tmux quote preservation verified live |
 | Brave homepage/bookmark | pending-marker + launchd retry (analog of ron's systemd timer) | applies on first launch-while-closed |
 
 ## Ops rules (bought by incidents, 2026-07-10)

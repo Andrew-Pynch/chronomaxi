@@ -4,8 +4,8 @@ Tags every SSH session (interactive, agent-driven, and omp-tool-driven) with
 who actually drove it, so the central Convex dashboard can split tracked
 time into human hours versus per-agent hours instead of one undifferentiated
 bucket. Two independent mechanisms, both repo-side deliverables in this
-directory. Nothing here is installed on any machine by this wave; `install.sh`
-is written and dry-run tested only, per the orchestrator's go/strike gate.
+directory. The installers are live on Ron, Bertha, and Timmy as of 2026-07-12,
+with per-host backups, actor checks, SSH config checks, and tmux parsing checks.
 
 ## Files
 
@@ -21,9 +21,8 @@ is written and dry-run tested only, per the orchestrator's go/strike gate.
 - `install.sh` -- per-machine idempotent installer for both of the above,
   plus an env file and marker-guarded blocks in `~/.zshrc` / `~/.ssh/config`.
   Supports `--dry-run` and `--uninstall`.
-- `skill-updates.md` -- proposed (not applied) diffs for the `tailnet` skill
-  plus a draft of a new `chronomaxi-attribution` skill for agent-driven
-  self-tagging.
+- `install.test.sh` -- regression coverage for standalone and merged `Host *`
+  layouts, idempotent refresh, valid `ssh -G` expansion, and uninstall.
 
 ## Mechanism 1: terminal title tags (interactive sessions only)
 

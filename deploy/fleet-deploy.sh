@@ -182,7 +182,7 @@ deploy_backend() {
     if [ "$DRY_RUN" -eq 1 ]; then
         log "DRY-RUN: verify CONVEX_SELF_HOSTED_* vars present in bertha's .env.local"
         log "DRY-RUN: ssh $BERTHA_HOST git -C $REMOTE_MONOREPO pull --ff-only"
-        log "DRY-RUN: ssh $BERTHA_HOST bunx convex deploy   (in $REMOTE_PACKAGE)"
+        log "DRY-RUN: ssh $BERTHA_HOST 'cd $REMOTE_PACKAGE && bun install --frozen-lockfile && bunx convex deploy'"
         log "DRY-RUN: ssh $BERTHA_HOST 'cd $REMOTE_PACKAGE/frontend && bun install --frozen-lockfile && bun run build'"
         log "DRY-RUN: ssh $BERTHA_HOST systemctl --user restart chronomaxi-web.service"
         return 0
@@ -196,6 +196,7 @@ set -e
 cd ~/work/personal-agent-monorepo
 git pull --ff-only
 cd packages/chronomaxi
+bun install --frozen-lockfile
 bunx convex deploy
 cd frontend
 bun install --frozen-lockfile
