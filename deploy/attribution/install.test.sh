@@ -45,6 +45,10 @@ fi
 
 merged_home="$TMP_DIR/merged"
 mkdir -p "$merged_home/.ssh"
+cat > "$merged_home/.zshrc" <<'EOF'
+source $ZSH/oh-my-zsh.sh
+# User configuration
+EOF
 cat > "$merged_home/.ssh/config" <<'EOF'
 Host *
     ServerAliveInterval 30
@@ -57,6 +61,8 @@ run_installer "$merged_home"
 assert_installed_config "$merged_home"
 grep -q '^[[:space:]]*ServerAliveInterval 30$' "$merged_home/.ssh/config" ||
     fail "existing Host * directive was lost"
+grep -q '^# User configuration$' "$merged_home/.zshrc" ||
+    fail "zsh marker refresh consumed the following line"
 run_installer "$merged_home" --uninstall
 grep -q '^[[:space:]]*Host \*[[:space:]]*$' "$merged_home/.ssh/config" ||
     fail "merged uninstall removed the pre-existing Host * block"

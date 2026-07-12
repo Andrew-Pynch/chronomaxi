@@ -20,7 +20,7 @@ trap cleanup EXIT
 
 mkdir -p "$TEST_HOME" "$TEST_BIN"
 # shellcheck disable=SC2016
-printf 'source $ZSH/oh-my-zsh.sh\n' > "$TEST_HOME/.zshrc"
+printf 'source $ZSH/oh-my-zsh.sh\n# User configuration\n' > "$TEST_HOME/.zshrc"
 printf 'set -g status on\n' > "$TEST_HOME/.tmux.conf"
 
 "$REAL_TMUX" -L "$SOCKET" -f /dev/null new-session -d -s cmx-test
@@ -39,6 +39,10 @@ run_installer
 
 [ "$(grep -c '^# >>> chronomaxi-drilldown >>>$' "$TEST_HOME/.tmux.conf")" -eq 1 ]
 [ "$(grep -c '^# >>> chronomaxi-drilldown >>>$' "$TEST_HOME/.zshrc")" -eq 1 ]
+grep -q '^# User configuration$' "$TEST_HOME/.zshrc" || {
+    echo "zsh marker refresh consumed the following line" >&2
+    exit 1
+}
 
 "$REAL_TMUX" -L "$SOCKET" source-file "$TEST_HOME/.tmux.conf"
 hook=$("$REAL_TMUX" -L "$SOCKET" show-hooks -g after-select-pane)

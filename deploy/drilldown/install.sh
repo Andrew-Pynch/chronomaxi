@@ -166,7 +166,7 @@ install_zshrc_hook() {
         # ENVIRON[] rather than an awk -v assignment (macOS BWK-awk rejects
         # a literal embedded newline in -v).
         new_content=$(CHRONOMAXI_AWK_BLOCK="$block" awk -v begin="$ZSHRC_MARK_BEGIN" -v end="$ZSHRC_MARK_END" '
-            $0 == begin { printf "%s", ENVIRON["CHRONOMAXI_AWK_BLOCK"]; in_block = 1; next }
+            $0 == begin { printf "%s\n", ENVIRON["CHRONOMAXI_AWK_BLOCK"]; in_block = 1; next }
             in_block == 1 { if ($0 == end) { in_block = 0 }; next }
             { print }
         ' "$ZSHRC")
