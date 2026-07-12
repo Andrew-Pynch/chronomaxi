@@ -8,6 +8,7 @@
         "convex:deploy": "convex deploy",
         "rebuild-aggregates": "bun run scripts/rebuild-aggregates.ts",
         "deploy:fleet": "bash deploy/fleet-deploy.sh",
+        "test:attribution": "bash deploy/attribution/install.test.sh",
         "test:drilldown": "bash deploy/drilldown/install.test.sh"
     },
     "dependencies": {

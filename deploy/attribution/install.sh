@@ -253,8 +253,21 @@ install_ssh_config_hook() {
         # See the ENVIRON[] note above install_zshrc_hook's equivalent
         # awk call -- $directives is multi-line, same macOS BWK-awk fix.
         new_content=$(CHRONOMAXI_AWK_DIRECTIVES="$(ssh_directives)" awk -v begin="$SSH_MARK_BEGIN" -v end="$SSH_MARK_END" '
-            $0 == begin { print; print ENVIRON["CHRONOMAXI_AWK_DIRECTIVES"]; in_block = 1; next }
-            in_block == 1 { if ($0 == end) { print; in_block = 0 }; next }
+            $0 == begin { print; in_block = 1; emitted = 0; next }
+            in_block == 1 {
+                if ($0 == end) {
+                    if (emitted == 0) { print ENVIRON["CHRONOMAXI_AWK_DIRECTIVES"] }
+                    print
+                    in_block = 0
+                    next
+                }
+                if (emitted == 0) {
+                    if ($0 ~ /^[[:space:]]*[Hh][Oo][Ss][Tt][[:space:]]+\*[[:space:]]*$/) { print }
+                    print ENVIRON["CHRONOMAXI_AWK_DIRECTIVES"]
+                    emitted = 1
+                }
+                next
+            }
             { print }
         ' "$SSH_CONFIG")
     elif grep -qE '^[[:space:]]*[Hh][Oo][Ss][Tt][[:space:]]+\*[[:space:]]*$' "$SSH_CONFIG"; then
