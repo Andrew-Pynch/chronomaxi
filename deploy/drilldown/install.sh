@@ -151,6 +151,8 @@ install_scripts() {
 install_zshrc_hook() {
     source_line="source \"$ZSH_LIB_DEST\""
     block=$(printf '%s\n%s\n%s\n' "$ZSHRC_MARK_BEGIN" "$source_line" "$ZSHRC_MARK_END")
+    # shellcheck disable=SC2016
+    oh_my_zsh_pattern='^[[:space:]]*source[[:space:]]+\$ZSH/oh-my-zsh\.sh'
 
     if [ ! -f "$ZSHRC" ]; then
         log "$ZSHRC does not exist, creating it with just the chronomaxi-drilldown block"
@@ -168,7 +170,7 @@ install_zshrc_hook() {
             in_block == 1 { if ($0 == end) { in_block = 0 }; next }
             { print }
         ' "$ZSHRC")
-    elif grep -qE '^[[:space:]]*source[[:space:]]+\$ZSH/oh-my-zsh\.sh' "$ZSHRC"; then
+    elif grep -qE "$oh_my_zsh_pattern" "$ZSHRC"; then
         log "adding chronomaxi-drilldown source line to $ZSHRC after the oh-my-zsh source line"
         new_content=$(awk -v begin="$ZSHRC_MARK_BEGIN" -v end="$ZSHRC_MARK_END" -v line="$source_line" '
             { print }
@@ -206,7 +208,7 @@ tmux_hook_command() {
     # the module-doc comment in chronomaxi-tmux-publish.sh) so a pane
     # command containing whitespace is still passed to the script as one
     # argument.
-    printf 'set-hook -g %s "run-shell -b '\''%s \"#{session_name}\" \"#{pane_id}\" \"#{pane_current_command}\"'\''"' \
+    printf 'set-hook -g %s "run-shell -b '\''%s \\\"#{session_name}\\\" \\\"#{pane_id}\\\" \\\"#{pane_current_command}\\\"'\''"' \
         "$1" "$TMUX_PUB_DEST"
 }
 

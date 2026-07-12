@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# deploy/fleet-deploy.sh -- push + fleet-deploy chronomaxi from big-ron.
+# deploy/fleet-deploy.sh -- explicitly publish + fleet-deploy Chronomaxi.
 #
-# Triggered automatically by .husky/post-commit on every commit landed on
-# `main` (async, backgrounded, never blocks the commit). Also safe to run
-# by hand for a manual deploy: deploy/fleet-deploy.sh
+# Run from the private canonical monorepo with `bun run deploy:fleet`.
+# The Chronomaxi subtree is published one-way to its public GitHub mirror
+# before any live host is changed.
 #
 # Ordering guarantee (load-bearing, do not reorder):
 #   1. push local main to origin (abort cleanly on failure -- nothing else
@@ -29,10 +29,8 @@
 #                          push, curl, or state-file write. Safe to run any
 #                          time from any branch.
 #
-# Logging: this script logs to stdout/stderr only -- it does not manage
-# its own log file. .husky/post-commit redirects its async invocation into
-# ~/.local/state/chronomaxi/fleet-deploy.log (>>...2>&1); a manual run just
-# prints to the terminal (pipe through `tee -a` yourself if you want both).
+# Logging: this script logs to stdout/stderr only. A manual run prints to the
+# terminal; pipe through `tee -a` if a persistent transcript is needed.
 #
 # Locking: a flock on /tmp/chronomaxi-fleet-deploy.lock serializes runs --
 # a second commit landing while a deploy is still in flight waits for the
@@ -45,19 +43,23 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MONOREPO_DIR="$(git -C "$PACKAGE_DIR" rev-parse --show-toplevel)"
+PACKAGE_PREFIX="${PACKAGE_DIR#"$MONOREPO_DIR"/}"
+PUBLIC_REPO="https://github.com/andrew-pynch/chronomaxi"
 STATE_DIR="$HOME/.local/state/chronomaxi"
 STATE_FILE="$STATE_DIR/fleet-last-deployed-rev"
-LOG_FILE="$STATE_DIR/fleet-deploy.log"          # see "Logging" above
+LOG_FILE="$STATE_DIR/fleet-deploy.log"
 LOCK_FILE="/tmp/chronomaxi-fleet-deploy.lock"
 LOCK_WAIT_S=1800
 
 BERTHA_HOST="big-bertha"
 TIMMY_HOST="lil-timmy"
-# shellcheck disable=SC2088  # intentional: display-only (log/warn text), never
-# executed/eval'd -- each remote heredoc below inlines the literal path itself
-# so the tilde expands correctly in the REMOTE shell, not this local variable.
-REMOTE_REPO='~/personal/chronomaxi'             # same relative layout on every host
+# These paths are display-only. Remote heredocs use literal paths so each
+# remote shell expands its own home directory.
+# shellcheck disable=SC2088
+REMOTE_MONOREPO='~/work/personal-agent-monorepo'
+REMOTE_PACKAGE="$REMOTE_MONOREPO/packages/chronomaxi"
 
 DRY_RUN=0
 [ "${CHRONOMAXI_DRY_RUN:-0}" = "1" ] && DRY_RUN=1
@@ -74,16 +76,44 @@ run_ssh() {
     CMX_AGENT_NAME=FleetDeploy ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" "$@"
 }
 
-# --- 1. push local main to origin -------------------------------------------
+# --- 1. publish the canonical private tree ----------------------------------
 
-push_if_ahead() {
-    log "git push origin main (no-ops cleanly if already up to date)"
+preflight_source() {
+    [ "$PACKAGE_PREFIX" = "packages/chronomaxi" ] \
+        || die "expected package at packages/chronomaxi, got $PACKAGE_PREFIX"
+
+    if [ "$DRY_RUN" -eq 0 ]; then
+        local branch
+        branch=$(git -C "$MONOREPO_DIR" symbolic-ref --quiet --short HEAD) \
+            || die "deploy requires the monorepo main branch, not detached HEAD"
+        [ "$branch" = "main" ] || die "deploy requires main, got $branch"
+        git -C "$MONOREPO_DIR" diff --quiet \
+            || die "deploy requires a clean worktree"
+        git -C "$MONOREPO_DIR" diff --cached --quiet \
+            || die "deploy requires a clean index"
+    fi
+}
+
+publish_sources() {
+    log "publishing private monorepo main and public Chronomaxi subtree"
     if [ "$DRY_RUN" -eq 1 ]; then
-        log "DRY-RUN: git push origin main"
+        log "DRY-RUN: git push origin main (in $MONOREPO_DIR)"
+        log "DRY-RUN: git subtree split --prefix=$PACKAGE_PREFIX $CURRENT_REV"
+        log "DRY-RUN: git push $PUBLIC_REPO <split-rev>:refs/heads/main"
         return 0
     fi
-    git -C "$REPO_DIR" push origin main \
-        || die "git push origin main failed -- aborting fleet deploy cleanly, nothing else touched"
+
+    git -C "$MONOREPO_DIR" push origin main \
+        || die "private monorepo push failed -- nothing deployed"
+
+    local public_rev
+    public_rev=$(git -C "$MONOREPO_DIR" subtree split \
+        --prefix="$PACKAGE_PREFIX" "$CURRENT_REV") \
+        || die "could not split the public Chronomaxi subtree"
+    git -C "$MONOREPO_DIR" push "$PUBLIC_REPO" \
+        "$public_rev:refs/heads/main" \
+        || die "public Chronomaxi mirror push failed -- nothing deployed"
+    log "published public Chronomaxi revision $public_rev"
 }
 
 # --- 2. compute what changed since the last successful deploy --------------
@@ -95,16 +125,18 @@ compute_changed() {
     local last_rev=""
     [ -f "$STATE_FILE" ] && last_rev=$(cat "$STATE_FILE")
 
-    if [ -n "$last_rev" ] && git -C "$REPO_DIR" cat-file -e "${last_rev}^{commit}" 2>/dev/null; then
+    if [ -n "$last_rev" ] && git -C "$MONOREPO_DIR" cat-file -e "${last_rev}^{commit}" 2>/dev/null; then
         log "diffing $last_rev..$CURRENT_REV against state file $STATE_FILE"
         while IFS= read -r path; do
+            path=${path#"$PACKAGE_PREFIX"/}
             case "$path" in
                 convex/*|frontend/*) BACKEND_CHANGED=1 ;;
             esac
             case "$path" in
                 tracker/*) TRACKER_CHANGED=1 ;;
             esac
-        done < <(git -C "$REPO_DIR" diff --name-only "$last_rev" "$CURRENT_REV")
+        done < <(git -C "$MONOREPO_DIR" diff --name-only \
+            "$last_rev" "$CURRENT_REV" -- "$PACKAGE_PREFIX")
     else
         log "no usable state file at $STATE_FILE -- treating this as a full deploy"
         BACKEND_CHANGED=1
@@ -121,13 +153,13 @@ verify_convex_env_vars() {
     local remote_check result
     remote_check=$(cat <<'EOF'
 set -e
-ENV_FILE=~/personal/chronomaxi/.env.local
+ENV_FILE=~/work/personal-agent-monorepo/packages/chronomaxi/.env.local
 [ -f "$ENV_FILE" ] || { echo "MISSING_FILE:$ENV_FILE"; exit 1; }
 missing=""
 for var in CONVEX_SELF_HOSTED_URL CONVEX_SELF_HOSTED_ADMIN_KEY; do
     grep -qE "^${var}=.+" "$ENV_FILE" || missing="$missing $var"
 done
-FRONTEND_ENV=~/personal/chronomaxi/frontend/.env.local
+FRONTEND_ENV=~/work/personal-agent-monorepo/packages/chronomaxi/frontend/.env.local
 # NEXT_PUBLIC_CONVEX_URL is baked into the frontend at BUILD time (mixed-content
 # gotcha: must be the tailscale TLS proxy URL, not http://big-bertha:3210) --
 # next build reads env from frontend/, never the repo root, so it must live in
@@ -149,9 +181,9 @@ deploy_backend() {
     log "backend: convex/ or frontend/ changed -- deploying on $BERTHA_HOST"
     if [ "$DRY_RUN" -eq 1 ]; then
         log "DRY-RUN: verify CONVEX_SELF_HOSTED_* vars present in bertha's .env.local"
-        log "DRY-RUN: ssh $BERTHA_HOST git -C $REMOTE_REPO pull --ff-only"
-        log "DRY-RUN: ssh $BERTHA_HOST bunx convex deploy   (in $REMOTE_REPO)"
-        log "DRY-RUN: ssh $BERTHA_HOST 'cd $REMOTE_REPO/frontend && bun install --frozen-lockfile && bun run build'"
+        log "DRY-RUN: ssh $BERTHA_HOST git -C $REMOTE_MONOREPO pull --ff-only"
+        log "DRY-RUN: ssh $BERTHA_HOST bunx convex deploy   (in $REMOTE_PACKAGE)"
+        log "DRY-RUN: ssh $BERTHA_HOST 'cd $REMOTE_PACKAGE/frontend && bun install --frozen-lockfile && bun run build'"
         log "DRY-RUN: ssh $BERTHA_HOST systemctl --user restart chronomaxi-web.service"
         return 0
     fi
@@ -161,8 +193,9 @@ deploy_backend() {
     local remote_deploy
     remote_deploy=$(cat <<'EOF'
 set -e
-cd ~/personal/chronomaxi
+cd ~/work/personal-agent-monorepo
 git pull --ff-only
+cd packages/chronomaxi
 bunx convex deploy
 cd frontend
 bun install --frozen-lockfile
@@ -215,7 +248,7 @@ deploy_tracker_ron() {
         return 0
     fi
 
-    ( cd "$REPO_DIR/tracker" && cargo build --release ) \
+    ( cd "$PACKAGE_DIR/tracker" && cargo build --release ) \
         || die "cargo build --release failed on ron (tracker/) -- aborting before touching the live tracker unit"
 
     systemctl --user restart chronomaxi-tracker.service
@@ -232,7 +265,7 @@ $(wait_for_flush_snippet)"
 deploy_tracker_bertha() {
     log "tracker: building + restarting on $BERTHA_HOST"
     if [ "$DRY_RUN" -eq 1 ]; then
-        log "DRY-RUN: ssh $BERTHA_HOST 'git -C $REMOTE_REPO pull --ff-only && cd $REMOTE_REPO/tracker && cargo build --release && systemctl --user restart chronomaxi-tracker.service'"
+        log "DRY-RUN: ssh $BERTHA_HOST 'git -C $REMOTE_MONOREPO pull --ff-only && cd $REMOTE_PACKAGE/tracker && cargo build --release && systemctl --user restart chronomaxi-tracker.service'"
         log "DRY-RUN: ssh $BERTHA_HOST verify is-active + fresh 'flushed' journal line within 90s"
         return 0
     fi
@@ -240,8 +273,8 @@ deploy_tracker_bertha() {
     local remote_build
     remote_build=$(cat <<'EOF'
 set -e
-git -C ~/personal/chronomaxi pull --ff-only
-cd ~/personal/chronomaxi/tracker
+git -C ~/work/personal-agent-monorepo pull --ff-only
+cd ~/work/personal-agent-monorepo/packages/chronomaxi/tracker
 cargo build --release
 systemctl --user restart chronomaxi-tracker.service
 EOF
@@ -261,7 +294,7 @@ deploy_tracker_timmy() {
     log "tracker: probing $TIMMY_HOST for an installed launchd agent"
     if [ "$DRY_RUN" -eq 1 ]; then
         log "DRY-RUN: ssh $TIMMY_HOST launchctl print gui/\$(id -u)/com.pynchlabs.chronomaxi-tracker  (probe only)"
-        log "DRY-RUN: if installed: git pull --ff-only, \$HOME/.cargo/bin/cargo build --release, launchctl kickstart -k"
+        log "DRY-RUN: if installed: pull $REMOTE_MONOREPO, build $REMOTE_PACKAGE/tracker, launchctl kickstart -k"
         log "DRY-RUN: if not installed / host asleep: WARN and skip gracefully"
         return 0
     fi
@@ -277,8 +310,8 @@ deploy_tracker_timmy() {
     local remote_build
     remote_build=$(cat <<'EOF'
 set -e
-git -C ~/personal/chronomaxi pull --ff-only
-cd ~/personal/chronomaxi/tracker
+git -C ~/work/personal-agent-monorepo pull --ff-only
+cd ~/work/personal-agent-monorepo/packages/chronomaxi/tracker
 "$HOME/.cargo/bin/cargo" build --release
 launchctl kickstart -k "gui/$(id -u)/com.pynchlabs.chronomaxi-tracker"
 EOF
@@ -315,16 +348,16 @@ health_checks() {
 
 main() {
     mkdir -p "$STATE_DIR"
-    log "fleet-deploy starting (repo: $REPO_DIR, dry-run: $DRY_RUN, log: $LOG_FILE)"
+    log "fleet-deploy starting (package: $PACKAGE_DIR, dry-run: $DRY_RUN, log: $LOG_FILE)"
 
     exec 200>"$LOCK_FILE"
     if ! flock -w "$LOCK_WAIT_S" 200; then
         die "could not acquire lock $LOCK_FILE within ${LOCK_WAIT_S}s -- another fleet-deploy run appears stuck"
     fi
 
-    push_if_ahead
-
-    CURRENT_REV=$(git -C "$REPO_DIR" rev-parse HEAD)
+    preflight_source
+    CURRENT_REV=$(git -C "$MONOREPO_DIR" rev-parse HEAD)
+    publish_sources
     compute_changed
 
     if [ "$BACKEND_CHANGED" -eq 1 ]; then
