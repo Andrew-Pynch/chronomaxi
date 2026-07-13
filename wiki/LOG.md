@@ -71,3 +71,21 @@ pointer), operations.md (bertha frontend build env row, ron additions table,
 lil-timmy LIVE section, ops rules, morning-deferred list resolved), and
 INDEX.md (Events entry). Batch commits: 213b5a6, a1a8ad0, 05ab30b, 672150c,
 0261cb1.
+
+## [2026-07-12] ingest | parallel wave: input diagnostics, buckets, scrubber, drilldown live, statusbar, hermes, kloyce
+
+Eight-agent wave (omp orchestration). Tracker: loud per-host input-count
+diagnostics (evdev group on ron, DISPLAY import on bertha, TCC on timmy),
+config-driven capture-time buckets (buckets.json), fail-closed privacy scrubber
+(homework relabel, chmod 600 local audit log, privacy-denylist.json), tmux
+session capture in span ingest. Convex: span bucket/tmuxSession fields, POST
+/dictation (kloyce word counts, separate dictated bucket), GET /statusline,
+typed WPM helpers, getProgramDetail sub-context query. Frontend: PANEL-104
+donut rewritten as deterministic SVG segments, PANEL-103 drilldown live
+(Alacritty groups by tmux session, BACK nav). deploy/: statusbar/ (waybar on
+ron, bumblebee i3 module on bertha, swiftbar script for timmy), hermes/
+(connector + 03:30 dream cron writing ~/chronomaxi-dreams/ + slack digest to
+C0B6Q5X4WAG + steering watcher, 2/day rate limit), kloyce/ (SSE reporter units
+on bertha and timmy posting /dictation). Fleet deployed rev dafd9ae; dashboard
+and drilldown verified live post-deploy. Commit: ce35579.
+
