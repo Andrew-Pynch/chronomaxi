@@ -27,6 +27,9 @@ pub struct Configuration {
     pub device_name: String,
     /// Local durable spool db path.
     pub spool_path: PathBuf,
+    pub bucket_config_path: PathBuf,
+    pub privacy_config_path: PathBuf,
+    pub scrub_audit_path: PathBuf,
 }
 
 impl Configuration {
@@ -45,6 +48,15 @@ impl Configuration {
             spool_path: env::var("CHRONOMAXI_SPOOL_PATH")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| default_spool_path()),
+            bucket_config_path: env::var("CHRONOMAXI_BUCKET_CONFIG")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| crate::buckets::default_path()),
+            privacy_config_path: env::var("CHRONOMAXI_PRIVACY_CONFIG")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| crate::privacy::default_config_path()),
+            scrub_audit_path: env::var("CHRONOMAXI_SCRUB_AUDIT_PATH")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| crate::privacy::default_audit_path()),
         })
     }
 }

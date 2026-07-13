@@ -73,19 +73,26 @@ fn foreground_state_path() -> PathBuf {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PushState {
     epoch_ms: i64,
+    session: String,
     cmd: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TmuxContext {
+    pub sub_program: Option<String>,
+    pub session: Option<String>,
 }
 
 fn parse_push_line(line: &str) -> Option<PushState> {
     let mut parts = line.trim().splitn(4, '|');
     let epoch_ms: i64 = parts.next()?.parse().ok()?;
-    let _session = parts.next()?;
+    let session = parts.next()?.trim().to_string();
     let _pane = parts.next()?;
     let cmd = parts.next()?.trim().to_string();
     if cmd.is_empty() {
         return None;
     }
-    Some(PushState { epoch_ms, cmd })
+    Some(PushState { epoch_ms, session, cmd })
 }
 
 fn now_epoch_ms() -> i64 {
@@ -110,7 +117,7 @@ fn read_push_state() -> Option<PushState> {
 /// once per `IPC_MIN_INTERVAL`.
 pub struct TmuxResolver {
     last_ipc_attempt: Option<Instant>,
-    last_ipc_result: Option<String>,
+    last_ipc_result: Option<TmuxContext>,
 }
 
 impl TmuxResolver {
@@ -122,17 +129,20 @@ impl TmuxResolver {
     /// `focused_pid` is the terminal emulator's own pid, resolved by the
     /// caller once per focus change (see logger_v4.rs) -- never re-resolved
     /// here on every tick.
-    pub fn resolve(&mut self, focused_pid: Option<i64>) -> Option<String> {
+    pub fn resolve(&mut self, focused_pid: Option<i64>) -> TmuxContext {
         if let Some(push) = read_push_state() {
             if is_fresh(&push) {
-                return normalize(&push.cmd);
+                return TmuxContext {
+                    sub_program: normalize(&push.cmd),
+                    session: if push.session.is_empty() { None } else { Some(push.session) },
+                };
             }
         }
 
-        self.resolve_via_ipc(focused_pid)
+        self.resolve_via_ipc(focused_pid).unwrap_or(TmuxContext { sub_program: None, session: None })
     }
 
-    fn resolve_via_ipc(&mut self, focused_pid: Option<i64>) -> Option<String> {
+    fn resolve_via_ipc(&mut self, focused_pid: Option<i64>) -> Option<TmuxContext> {
         let now = Instant::now();
         let due = self.last_ipc_attempt.is_none_or(|last| now.duration_since(last) >= IPC_MIN_INTERVAL);
         if !due {
@@ -140,7 +150,7 @@ impl TmuxResolver {
         }
 
         self.last_ipc_attempt = Some(now);
-        self.last_ipc_result = focused_pid.and_then(resolve_pane_command_via_ipc);
+        self.last_ipc_result = focused_pid.and_then(resolve_tmux_context_via_ipc);
         self.last_ipc_result.clone()
     }
 }
@@ -164,7 +174,7 @@ fn run_tmux(args: &[&str]) -> Option<String> {
     }
 }
 
-fn resolve_pane_command_via_ipc(pid: i64) -> Option<String> {
+fn resolve_tmux_context_via_ipc(pid: i64) -> Option<TmuxContext> {
     let tty = find_descendant_tmux_client_tty(pid)?;
     let session = run_tmux(&["display-message", "-p", "-t", &tty, "#{client_session}"])?;
     let pane_info = run_tmux(&[
@@ -174,8 +184,9 @@ fn resolve_pane_command_via_ipc(pid: i64) -> Option<String> {
         &session,
         "#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}",
     ])?;
-    let (_, cmd) = pane_info.rsplit_once(' ')?;
-    normalize(cmd)
+    let (session_prefix, cmd) = pane_info.rsplit_once(' ')?;
+    let session_name = session_prefix.split(':').next().unwrap_or(session.as_str()).to_string();
+    Some(TmuxContext { sub_program: normalize(cmd), session: Some(session_name) })
 }
 
 /// Finds the youngest `tmux` (client) process descended from `root_pid`
@@ -278,6 +289,7 @@ mod tests {
     fn parse_push_line_extracts_cmd() {
         let parsed = parse_push_line("1751234567890|chronomaxi|1.0|nvim").unwrap();
         assert_eq!(parsed.epoch_ms, 1751234567890);
+        assert_eq!(parsed.session, "chronomaxi");
         assert_eq!(parsed.cmd, "nvim");
     }
 
@@ -291,9 +303,9 @@ mod tests {
     #[test]
     fn freshness_window_is_respected() {
         let now = now_epoch_ms();
-        let fresh = PushState { epoch_ms: now - 1000, cmd: "nvim".to_string() };
-        let stale = PushState { epoch_ms: now - 20_000, cmd: "nvim".to_string() };
-        let future = PushState { epoch_ms: now + 5_000, cmd: "nvim".to_string() };
+        let fresh = PushState { epoch_ms: now - 1000, session: "s".to_string(), cmd: "nvim".to_string() };
+        let stale = PushState { epoch_ms: now - 20_000, session: "s".to_string(), cmd: "nvim".to_string() };
+        let future = PushState { epoch_ms: now + 5_000, session: "s".to_string(), cmd: "nvim".to_string() };
         assert!(is_fresh(&fresh));
         assert!(!is_fresh(&stale));
         assert!(!is_fresh(&future));

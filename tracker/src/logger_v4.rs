@@ -12,10 +12,12 @@ use tokio::time;
 use crate::{
     actor,
     capture::{self, ActiveWindow},
+    buckets::BucketClassifier,
     category::{self, Category},
     config::Configuration,
     idle_tracking::IdleTracker,
     log::Log,
+    privacy::PrivacyScrubber,
     spool::Spool,
 };
 #[cfg(target_os = "linux")]
@@ -122,6 +124,8 @@ pub struct LoggerV4 {
     pub idle_tracker: IdleTracker,
     pub config: Configuration,
     pub spool: Spool,
+    bucket_classifier: BucketClassifier,
+    privacy_scrubber: PrivacyScrubber,
     #[cfg(target_os = "linux")]
     pub device_state: device_query::DeviceState,
     #[cfg(target_os = "macos")]
@@ -183,6 +187,8 @@ impl LoggerV4 {
         let backend = select_backend();
         let config = Configuration::from_env()?;
         let spool = Spool::open(&config.spool_path)?;
+        let bucket_classifier = BucketClassifier::load(&config.bucket_config_path);
+        let privacy_scrubber = PrivacyScrubber::load(&config.privacy_config_path, &config.scrub_audit_path);
 
         #[cfg(target_os = "linux")]
         let device_state = device_query::DeviceState::new();
@@ -219,11 +225,19 @@ impl LoggerV4 {
         };
 
         println!("Using {:?} capture backend", backend);
+        #[cfg(target_os = "linux")]
+        if backend == CaptureBackend::X11 && env::var("DISPLAY").unwrap_or_default().trim().is_empty() {
+            println!(
+                "CHRONOMAXI INPUT COUNTS MAY BE UNAVAILABLE: X11 backend has no DISPLAY. Fix user service environment with: systemctl --user import-environment DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS"
+            );
+        }
 
         Ok(LoggerV4 {
             idle_tracker: IdleTracker::new(),
             config,
             spool,
+            bucket_classifier,
+            privacy_scrubber,
             #[cfg(target_os = "linux")]
             device_state,
             #[cfg(target_os = "macos")]
@@ -365,9 +379,31 @@ impl LoggerV4 {
         let now = Utc::now();
 
         #[cfg(target_os = "linux")]
-        let current_sub_program = self.resolve_sub_program(&active_window);
+        let tmux_context = self.resolve_tmux_context(&active_window);
+        #[cfg(target_os = "linux")]
+        let current_sub_program = tmux_context.sub_program.clone();
+        #[cfg(target_os = "linux")]
+        let current_tmux_session = tmux_context.session.clone();
         #[cfg(target_os = "macos")]
         let current_sub_program: Option<String> = None;
+        #[cfg(target_os = "macos")]
+        let current_tmux_session: Option<String> = None;
+        let initial_bucket = self.classify_bucket(
+            &active_window.program_process_name,
+            Some(active_window.title.as_str()),
+            current_sub_program.as_deref(),
+            current_tmux_session.as_deref(),
+        );
+        let scrubbed_probe = self.privacy_scrubber.scrub_fields(
+            &active_window.program_process_name,
+            &active_window.program_name,
+            &active_window.title,
+            None,
+            current_sub_program.as_deref(),
+            &initial_bucket,
+        );
+        let current_sub_program = scrubbed_probe.sub_program;
+        let current_bucket = scrubbed_probe.bucket;
 
         if let Some(log) = self.current_log.as_mut() {
             log.current_mouse_position = Some(mouse_position);
@@ -395,7 +431,8 @@ impl LoggerV4 {
                 log.current_window_id.as_deref() != Some(active_window.id.as_str())
                     || log.current_program_process_name.as_deref()
                         != Some(active_window.program_process_name.as_str())
-                    || log.sub_program != current_sub_program;
+                    || log.sub_program != current_sub_program
+                    || log.tmux_session != current_tmux_session;
             let idle_changed = log.is_idle != is_idle;
             let span_capped = log
                 .log_start_time_utc
@@ -411,10 +448,10 @@ impl LoggerV4 {
             self.end_current_log_at(now)?;
         } else if let Some(log) = self.current_log.as_mut() {
             log.current_window_id = Some(active_window.id);
-            log.current_program_process_name = Some(active_window.program_process_name);
-            log.current_program_name = Some(active_window.program_name);
             log.is_idle = is_idle;
             log.sub_program = current_sub_program;
+            log.tmux_session = current_tmux_session;
+            log.bucket = Some(current_bucket);
             self.last_window_id = self.current_window_id.clone();
         }
 
@@ -498,23 +535,52 @@ impl LoggerV4 {
     pub fn capture(&mut self) -> Result<Log, Box<dyn std::error::Error>> {
         let active_window = self.get_active_window();
         let current_window_id = active_window.id.clone();
-        let current_program_process_name = active_window.program_process_name.clone();
-        let current_program_name = active_window.program_name.clone();
+        let mut current_program_process_name = active_window.program_process_name.clone();
+        let mut current_program_name = active_window.program_name.clone();
+        let raw_title = active_window.title.clone();
 
-        let (current_browser_title, current_browser_site_name) = self
-            .get_browser_title_and_site_name(
-                current_program_process_name.clone(),
-                current_window_id.clone(),
-            )
+        let (mut current_browser_title, mut current_browser_site_name) = self
+            .get_browser_title_and_site_name_from_title(&current_program_process_name, &raw_title)
             .unwrap_or((None, None));
 
         let (mouse_x, mouse_y) = self.get_mouse_position();
         let keys_pressed_count = self.get_keys_pressed_count();
 
         #[cfg(target_os = "linux")]
-        let sub_program = self.resolve_sub_program(&active_window);
+        let tmux_context = self.resolve_tmux_context(&active_window);
+        #[cfg(target_os = "linux")]
+        let mut sub_program = tmux_context.sub_program;
+        #[cfg(target_os = "linux")]
+        let tmux_session = tmux_context.session;
         #[cfg(target_os = "macos")]
-        let sub_program: Option<String> = None;
+        let mut sub_program: Option<String> = None;
+        #[cfg(target_os = "macos")]
+        let tmux_session: Option<String> = None;
+
+        let initial_bucket = self.classify_bucket(
+            &current_program_process_name,
+            Some(raw_title.as_str()),
+            sub_program.as_deref(),
+            tmux_session.as_deref(),
+        );
+        let scrubbed = self.privacy_scrubber.scrub_fields(
+            &current_program_process_name,
+            &current_program_name,
+            &raw_title,
+            current_browser_title.as_deref(),
+            sub_program.as_deref(),
+            &initial_bucket,
+        );
+        current_program_process_name = scrubbed.program_process_name;
+        current_program_name = scrubbed.program_name;
+        let was_scrubbed = scrubbed.scrubbed;
+        current_browser_title = scrubbed.browser_title;
+        if was_scrubbed {
+            current_browser_site_name = None;
+        }
+        sub_program = scrubbed.sub_program;
+        let bucket = scrubbed.bucket;
+        let safe_title = scrubbed.title;
 
         let category = self.get_category(
             &current_program_name,
@@ -524,7 +590,7 @@ impl LoggerV4 {
             sub_program.as_deref(),
         );
         let mouse_movement_mm = self.get_mouse_movement_mm();
-        let actor = actor::resolve_actor(&active_window.title, &self.config.actor);
+        let actor = actor::resolve_actor(&safe_title, &self.config.actor);
 
         let mut log = Log {
             current_window_id: Some(current_window_id),
@@ -544,9 +610,11 @@ impl LoggerV4 {
             right_click_count: Some(0),
             middle_click_count: Some(0),
             sub_program,
+            tmux_session,
+            bucket: Some(bucket),
             actor,
         };
-        log.is_idle = self.compute_is_idle(&log, Some(active_window.title.as_str()));
+        log.is_idle = self.compute_is_idle(&log, Some(safe_title.as_str()));
 
         Ok(log)
     }
@@ -641,8 +709,7 @@ impl LoggerV4 {
 
         if pushed_state != truth_state {
             println!(
-                "chronomaxi hypr reconcile: pushed state diverged from hyprctl ground truth (pushed={:?}, truth={:?}), correcting",
-                pushed_state, truth_state
+                "chronomaxi hypr reconcile: pushed state diverged from hyprctl ground truth, correcting without logging titles"
             );
             watcher.reconcile(truth_state);
         }
@@ -763,11 +830,22 @@ impl LoggerV4 {
         current_program_process_name: String,
         current_window_id: String,
     ) -> Option<(Option<String>, Option<String>)> {
-        if !self.is_current_program_browser(current_program_process_name) {
+        if !self.is_current_program_browser(current_program_process_name.clone()) {
+            return None;
+        }
+        let title = self.get_active_window_title(current_window_id);
+        self.get_browser_title_and_site_name_from_title(&current_program_process_name, &title)
+    }
+
+    fn get_browser_title_and_site_name_from_title(
+        &self,
+        current_program_process_name: &str,
+        browser_title_str: &str,
+    ) -> Option<(Option<String>, Option<String>)> {
+        if !self.is_current_program_browser(current_program_process_name.to_string()) {
             return None;
         }
 
-        let browser_title_str = self.get_active_window_title(current_window_id);
         let browser_title_parts: Vec<&str> = browser_title_str.trim().split(" - ").collect();
 
         match browser_title_parts.len() {
@@ -1021,12 +1099,23 @@ impl LoggerV4 {
     /// for non-terminal windows or when nothing resolvable (bare shell,
     /// no tmux, etc). See tmux.rs for the full resolution strategy.
     #[cfg(target_os = "linux")]
-    fn resolve_sub_program(&mut self, active_window: &ActiveWindow) -> Option<String> {
+    fn resolve_tmux_context(&mut self, active_window: &ActiveWindow) -> tmux::TmuxContext {
         if !tmux::is_terminal_class(&active_window.program_process_name) {
-            return None;
+            return tmux::TmuxContext { sub_program: None, session: None };
         }
         let pid = self.focused_pid_for_terminal();
         self.tmux_resolver.resolve(pid)
+    }
+
+    fn classify_bucket(
+        &self,
+        program_process_name: &str,
+        title: Option<&str>,
+        sub_program: Option<&str>,
+        tmux_session: Option<&str>,
+    ) -> String {
+        self.bucket_classifier
+            .classify(program_process_name, title, sub_program, tmux_session)
     }
 
     #[cfg(target_os = "linux")]

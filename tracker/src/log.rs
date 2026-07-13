@@ -27,6 +27,8 @@ pub struct Log {
     /// tmux (crate::tmux). `None` for non-terminal windows or when tmux
     /// drill-down can't resolve anything (bare shell, no tmux, etc).
     pub sub_program: Option<String>,
+    pub tmux_session: Option<String>,
+    pub bucket: Option<String>,
 
     /// "human" | "agent:<name>" -- resolved from a `cmx|actor=...` window
     /// title tag when present, else CHRONOMAXI_ACTOR, else "human".
@@ -40,7 +42,7 @@ impl fmt::Display for Log {
         let (mouse_x, mouse_y) = self.current_mouse_position.unwrap_or((0, 0));
         write!(
             f,
-            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}\nIsIdle: {:?}\n Category: {:?}\n Mouse Movement in (mm): {:?}\nLeft Clicks: {:?}\n Right Clicks: {:?}\n Middle Clicks: {:?}\nSubProgram: {:?}\nActor: {:?}",
+            "Window ID: {:?}\nProgram Process Name: {:?}\nProgram Name: {:?}\nBrowser Title: {:?}\nMouse Position: ({:?}, {:?})\nDuration MS: {:?}\nKeys Pressed: {:?}\nCreated At: {:?}\n\nStart Time: {:?}\nEndTime: {:?}\nIsIdle: {:?}\n Category: {:?}\n Mouse Movement in (mm): {:?}\nLeft Clicks: {:?}\n Right Clicks: {:?}\n Middle Clicks: {:?}\nSubProgram: {:?}\nTmuxSession: {:?}\nBucket: {:?}\nActor: {:?}",
             self.current_window_id,
             self.current_program_process_name,
             self.current_program_name,
@@ -59,6 +61,8 @@ impl fmt::Display for Log {
             self.right_click_count,
             self.middle_click_count,
             self.sub_program,
+            self.tmux_session,
+            self.bucket,
             self.actor
         )
     }
@@ -84,6 +88,8 @@ impl Log {
             right_click_count: None,
             middle_click_count: None,
             sub_program: None,
+            tmux_session: None,
+            bucket: None,
             actor: crate::config::DEFAULT_ACTOR.to_string(),
         }
     }

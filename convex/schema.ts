@@ -42,6 +42,8 @@ export default defineSchema({
         // for every other program, and for spans from trackers that
         // predate this field.
         subProgram: v.optional(v.string()),
+        tmuxSession: v.optional(v.string()),
+        bucket: v.optional(v.string()),
         browserTitle: v.optional(v.string()),
         // Normalized to 0 at ingest/import time -- never left undefined --
         // so aggregation.ts can sum unconditionally.
@@ -213,6 +215,26 @@ export default defineSchema({
         ),
         importBatch: v.string(),
     }).index("by_source", ["source"]),
+
+    dictationEvents: defineTable({
+        sourceKey: v.string(),
+        host: v.string(),
+        deviceName: v.string(),
+        ts: v.number(),
+        words: v.number(),
+        source: v.string(),
+        createdAt: v.number(),
+    })
+        .index("by_sourceKey", ["sourceKey"])
+        .index("by_device_ts", ["deviceName", "ts"]),
+
+    dictationDayAgg: defineTable({
+        dayKey: v.string(),
+        deviceName: v.string(),
+        dictatedWords: v.number(),
+        eventCount: v.number(),
+        updatedAt: v.number(),
+    }).index("by_day_device", ["dayKey", "deviceName"]),
 
     // Resume state for scripts/rebuild-aggregates.ts (convex/rebuild.ts).
     // One row per rebuild run, keyed by runId so a fresh --yes invocation

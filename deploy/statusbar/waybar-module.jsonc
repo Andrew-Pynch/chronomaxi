@@ -1,0 +1,6 @@
+"custom/chronomaxi": {
+    "exec": "~/.local/bin/chronomaxi-status --json",
+    "return-type": "json",
+    "interval": 60,
+    "tooltip": true
+}

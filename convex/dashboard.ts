@@ -326,18 +326,100 @@ export const getDashboard = query({
     },
 });
 
-const subProgramStatValidator = v.object({
-    subProgram: v.string(),
+type SubContextSource = "tmuxSession" | "tmuxCommand" | "windowTitle";
+
+type SubContextTotals = {
+    label: string;
+    source: SubContextSource;
+    durationMs: number;
+    keysPressedCount: number;
+    spanCount: number;
+};
+
+const TERMINAL_PROGRAMS: Record<string, true> = { alacritty: true, kitty: true };
+
+const subContextStatValidator = v.object({
+    label: v.string(),
+    source: v.union(v.literal("tmuxSession"), v.literal("tmuxCommand"), v.literal("windowTitle")),
     durationHours: v.number(),
     formattedDuration: v.string(),
     keystrokes: v.number(),
     spanCount: v.number(),
 });
 
-// Terminal-pane sub-identity breakdown for one program (e.g. program=
-// "alacritty" -> subPrograms ["nvim", "cargo", "zsh", ...]), reading only
-// programDetailAgg (never spans). Either a single `dayKey`, an explicit
-// [startDayKey, endDayKey] range, or (all three omitted) just today.
+function normalizedProgram(program: string): string {
+    return program.trim().toLowerCase();
+}
+
+function dayQueryBounds(dayKey: string): { start: number; end: number } {
+    const { year, month, day } = parseDayKey(dayKey);
+    const utcMidnight = Date.UTC(year, month - 1, day);
+    return {
+        start: utcMidnight - 12 * MS_PER_HOUR,
+        end: utcMidnight + 36 * MS_PER_HOUR,
+    };
+}
+
+function addSubContext(
+    totals: Map<string, SubContextTotals>,
+    source: SubContextSource,
+    label: string,
+    durationMs: number,
+    keysPressedCount: number,
+    spanCount: number,
+) {
+    const cleanLabel = label.trim() || "Unknown window title";
+    const key = `${source}:${cleanLabel}`;
+    const acc = totals.get(key) ?? {
+        label: cleanLabel,
+        source,
+        durationMs: 0,
+        keysPressedCount: 0,
+        spanCount: 0,
+    };
+    acc.durationMs += durationMs;
+    acc.keysPressedCount += keysPressedCount;
+    acc.spanCount += spanCount;
+    totals.set(key, acc);
+}
+
+function clusterWindowTitle(title: string | undefined): string {
+    const raw = title?.trim();
+    if (!raw) return "Unknown window title";
+
+    const suffixes = [
+        " - Google Chrome",
+        " - Chromium",
+        " - Brave",
+        " - Mozilla Firefox",
+        " - Firefox",
+    ];
+    for (const suffix of suffixes) {
+        if (raw.endsWith(suffix)) {
+            return raw.slice(0, -suffix.length).trim() || raw;
+        }
+    }
+
+    return raw;
+}
+
+function subContextsFromTotals(totals: Map<string, SubContextTotals>) {
+    return Array.from(totals.values())
+        .map((acc) => ({
+            label: acc.label,
+            source: acc.source,
+            durationHours: acc.durationMs / MS_PER_HOUR,
+            formattedDuration: formatDuration(acc.durationMs),
+            keystrokes: acc.keysPressedCount,
+            spanCount: acc.spanCount,
+        }))
+        .sort((left, right) => right.durationHours - left.durationHours);
+}
+
+// Sub-context breakdown for one program. Terminal programs use tmuxSession
+// when the tracker captured it, with command buckets as a historical fallback.
+// Non-terminal programs fall back to browserTitle clusters when those titles
+// exist on spans.
 export const getProgramDetail = query({
     args: {
         program: v.string(),
@@ -354,7 +436,10 @@ export const getProgramDetail = query({
         totalFormattedDuration: v.string(),
         totalKeystrokes: v.number(),
         totalSpanCount: v.number(),
-        subPrograms: v.array(subProgramStatValidator),
+        contextLabel: v.string(),
+        dataSource: v.union(v.literal("tmuxSession"), v.literal("tmuxCommand"), v.literal("windowTitle")),
+        captureGap: v.union(v.string(), v.null()),
+        subContexts: v.array(subContextStatValidator),
     }),
     handler: async (ctx, args) => {
         const dayKeys =
@@ -367,44 +452,164 @@ export const getProgramDetail = query({
                     )
                   : [todayDayKey()];
 
-        const rowsPerDay = await Promise.all(
+        const targetProgram = normalizedProgram(args.program);
+        const device = args.device;
+        const isTerminalProgram = TERMINAL_PROGRAMS[targetProgram] === true;
+
+        if (isTerminalProgram) {
+            const programRowsPerDay = await Promise.all(
+                dayKeys.map((dayKey) =>
+                    ctx.db
+                        .query("programAgg")
+                        .withIndex("by_day_device_program", (q) => q.eq("dayKey", dayKey))
+                        .collect(),
+                ),
+            );
+            const deviceNames = new Set<string>();
+            for (const rows of programRowsPerDay) {
+                for (const row of rows) {
+                    if (normalizedProgram(row.program) !== targetProgram) continue;
+                    if (device !== undefined && row.deviceName !== device) continue;
+                    deviceNames.add(row.deviceName);
+                }
+            }
+
+            const allBounds = dayKeys.map(dayQueryBounds);
+            const queryStart = Math.min(...allBounds.map((bounds) => bounds.start));
+            const queryEnd = Math.max(...allBounds.map((bounds) => bounds.end));
+            const spanRows = await Promise.all(
+                Array.from(deviceNames).map((deviceName) =>
+                    ctx.db
+                        .query("spans")
+                        .withIndex("by_deviceName_startedAt", (q) =>
+                            q
+                                .eq("deviceName", deviceName)
+                                .gte("startedAt", queryStart)
+                                .lt("startedAt", queryEnd),
+                        )
+                        .collect(),
+                ),
+            );
+
+            const dayKeySet = new Set(dayKeys);
+            const totals = new Map<string, SubContextTotals>();
+            let commandFallbackSpanCount = 0;
+            for (const rows of spanRows) {
+                for (const span of rows) {
+                    if (normalizedProgram(span.programName) !== targetProgram) continue;
+                    if (!dayKeySet.has(localTimeParts(span.startedAt).dayKey)) continue;
+                    const active = !span.isIdle;
+                    const session = span.tmuxSession?.trim();
+                    if (session) {
+                        addSubContext(
+                            totals,
+                            "tmuxSession",
+                            session,
+                            active ? span.durationMs : 0,
+                            active ? span.keysPressedCount : 0,
+                            active ? 1 : 0,
+                        );
+                    } else {
+                        commandFallbackSpanCount += active ? 1 : 0;
+                        addSubContext(
+                            totals,
+                            "tmuxCommand",
+                            span.subProgram ? `command: ${span.subProgram}` : "Unknown tmux session",
+                            active ? span.durationMs : 0,
+                            active ? span.keysPressedCount : 0,
+                            active ? 1 : 0,
+                        );
+                    }
+                }
+            }
+
+            const subContexts = subContextsFromTotals(totals);
+            const totalDurationMs = Array.from(totals.values()).reduce(
+                (sum, acc) => sum + acc.durationMs,
+                0,
+            );
+
+            return {
+                program: args.program,
+                device: device ?? null,
+                dayKeys,
+                totalDurationHours: totalDurationMs / MS_PER_HOUR,
+                totalFormattedDuration: formatDuration(totalDurationMs),
+                totalKeystrokes: Array.from(totals.values()).reduce(
+                    (sum, acc) => sum + acc.keysPressedCount,
+                    0,
+                ),
+                totalSpanCount: Array.from(totals.values()).reduce(
+                    (sum, acc) => sum + acc.spanCount,
+                    0,
+                ),
+                contextLabel: "tmux session",
+                dataSource: "tmuxSession" as const,
+                captureGap:
+                    commandFallbackSpanCount > 0
+                        ? "Some terminal spans predate tmux session capture; those rows are grouped by foreground command."
+                        : null,
+                subContexts,
+            };
+        }
+
+        const programRowsPerDay = await Promise.all(
             dayKeys.map((dayKey) =>
                 ctx.db
-                    .query("programDetailAgg")
-                    .withIndex("by_day_device_program_sub", (q) => q.eq("dayKey", dayKey))
+                    .query("programAgg")
+                    .withIndex("by_day_device_program", (q) => q.eq("dayKey", dayKey))
+                    .collect(),
+            ),
+        );
+        const deviceNames = new Set<string>();
+        for (const rows of programRowsPerDay) {
+            for (const row of rows) {
+                if (normalizedProgram(row.program) !== targetProgram) continue;
+                if (device !== undefined && row.deviceName !== device) continue;
+                deviceNames.add(row.deviceName);
+            }
+        }
+
+        const allBounds = dayKeys.map(dayQueryBounds);
+        const queryStart = Math.min(...allBounds.map((bounds) => bounds.start));
+        const queryEnd = Math.max(...allBounds.map((bounds) => bounds.end));
+        const spanRows = await Promise.all(
+            Array.from(deviceNames).map((deviceName) =>
+                ctx.db
+                    .query("spans")
+                    .withIndex("by_deviceName_startedAt", (q) =>
+                        q
+                            .eq("deviceName", deviceName)
+                            .gte("startedAt", queryStart)
+                            .lt("startedAt", queryEnd),
+                    )
                     .collect(),
             ),
         );
 
-        const device = args.device;
-        const totals = new Map<string, { durationMs: number; keysPressedCount: number; spanCount: number }>();
-        for (const rows of rowsPerDay) {
-            for (const row of rows) {
-                if (row.program !== args.program) continue;
-                if (device !== undefined && row.deviceName !== device) continue;
-                const acc = totals.get(row.subProgram) ?? {
-                    durationMs: 0,
-                    keysPressedCount: 0,
-                    spanCount: 0,
-                };
-                acc.durationMs += row.durationMs;
-                acc.keysPressedCount += row.keysPressedCount;
-                acc.spanCount += row.spanCount;
-                totals.set(row.subProgram, acc);
+        const dayKeySet = new Set(dayKeys);
+        const totals = new Map<string, SubContextTotals>();
+        for (const rows of spanRows) {
+            for (const span of rows) {
+                if (normalizedProgram(span.programName) !== targetProgram) continue;
+                if (!dayKeySet.has(localTimeParts(span.startedAt).dayKey)) continue;
+                const active = !span.isIdle;
+                addSubContext(
+                    totals,
+                    "windowTitle",
+                    clusterWindowTitle(span.browserTitle),
+                    active ? span.durationMs : 0,
+                    active ? span.keysPressedCount : 0,
+                    active ? 1 : 0,
+                );
             }
         }
 
-        const subPrograms = Array.from(totals.entries())
-            .map(([subProgram, acc]) => ({
-                subProgram,
-                durationHours: acc.durationMs / MS_PER_HOUR,
-                formattedDuration: formatDuration(acc.durationMs),
-                keystrokes: acc.keysPressedCount,
-                spanCount: acc.spanCount,
-            }))
-            .sort((left, right) => right.durationHours - left.durationHours);
-
-        const totalDurationMs = Array.from(totals.values()).reduce((sum, acc) => sum + acc.durationMs, 0);
+        const subContexts = subContextsFromTotals(totals);
+        const totalDurationMs = Array.from(totals.values()).reduce(
+            (sum, acc) => sum + acc.durationMs,
+            0,
+        );
 
         return {
             program: args.program,
@@ -412,9 +617,16 @@ export const getProgramDetail = query({
             dayKeys,
             totalDurationHours: totalDurationMs / MS_PER_HOUR,
             totalFormattedDuration: formatDuration(totalDurationMs),
-            totalKeystrokes: Array.from(totals.values()).reduce((sum, acc) => sum + acc.keysPressedCount, 0),
+            totalKeystrokes: Array.from(totals.values()).reduce(
+                (sum, acc) => sum + acc.keysPressedCount,
+                0,
+            ),
             totalSpanCount: Array.from(totals.values()).reduce((sum, acc) => sum + acc.spanCount, 0),
-            subPrograms,
+            contextLabel: "window title",
+            dataSource: "windowTitle" as const,
+            captureGap: null,
+            subContexts,
         };
     },
 });
+

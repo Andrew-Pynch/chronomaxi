@@ -1,6 +1,7 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
 pub mod actor;
+pub mod buckets;
 pub mod capture;
 pub mod category;
 pub mod config;
@@ -11,6 +12,7 @@ pub mod ingest;
 #[cfg(target_os = "linux")]
 pub mod input_evdev;
 pub mod log;
+mod privacy;
 pub mod logger_v4;
 pub mod spool;
 pub mod tmux;

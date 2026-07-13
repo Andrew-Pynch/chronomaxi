@@ -1,11 +1,9 @@
 "use client";
 
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { DataTable, Panel, type DataTableColumn } from "~/components/nerv";
 import type { CategoryStat, DashboardData } from "~/lib/activity-types";
-import { formatHours, formatPercent, isAllZero } from "~/lib/format";
+import { formatHours, formatPercent } from "~/lib/format";
 import { categoryColor } from "./category-colors";
-import { ChartTooltip } from "./ChartTooltip";
 import { EmptyChart } from "./EmptyChart";
 
 type Props = {
@@ -42,42 +40,112 @@ const columns: DataTableColumn<CategoryStat>[] = [
     },
 ];
 
-export const CategoriesChart = ({ data }: Props) => {
-    const categories = data.categoriesToday.filter(
-        (category) => category.durationHours > 0 || category.percentage > 0,
+const DONUT_SIZE = 220;
+const DONUT_CENTER = DONUT_SIZE / 2;
+const DONUT_RADIUS = 75;
+const DONUT_STROKE_WIDTH = 34;
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
+const FULL_SLICE_EPSILON = 0.000001;
+
+type CategorySlice = CategoryStat & {
+    color: string;
+    offset: number;
+    fraction: number;
+    value: number;
+};
+
+const categoryValue = (category: CategoryStat) => {
+    if (Number.isFinite(category.percentage) && category.percentage > 0) {
+        return category.percentage;
+    }
+
+    return Number.isFinite(category.durationHours) && category.durationHours > 0
+        ? category.durationHours
+        : 0;
+};
+
+const buildCategorySlices = (categories: CategoryStat[]): CategorySlice[] => {
+    const positiveCategories = categories
+        .map((category, index) => ({
+            ...category,
+            color: categoryColor(category.category, index),
+            value: categoryValue(category),
+        }))
+        .filter((category) => category.value > 0);
+    const total = positiveCategories.reduce(
+        (sum, category) => sum + category.value,
+        0,
     );
 
+    if (total <= 0) {
+        return [];
+    }
+
+    let offset = 0;
+
+    return positiveCategories.map((category) => {
+        const fraction = category.value / total;
+        const slice = {
+            ...category,
+            offset,
+            fraction,
+        };
+        offset += fraction * DONUT_CIRCUMFERENCE;
+        return slice;
+    });
+};
+
+const CategoriesDonut = ({ slices }: { slices: CategorySlice[] }) => (
+    <svg
+        aria-label="Category time distribution"
+        className="h-[220px] w-full overflow-visible"
+        role="img"
+        viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}
+    >
+        {slices.map((slice) => {
+            const dashLength = slice.fraction * DONUT_CIRCUMFERENCE;
+            const isFullSlice = slice.fraction >= 1 - FULL_SLICE_EPSILON;
+
+            return (
+                <circle
+                    key={slice.category}
+                    cx={DONUT_CENTER}
+                    cy={DONUT_CENTER}
+                    fill="none"
+                    r={DONUT_RADIUS}
+                    stroke={slice.color}
+                    strokeDasharray={
+                        isFullSlice
+                            ? undefined
+                            : `${dashLength} ${DONUT_CIRCUMFERENCE - dashLength}`
+                    }
+                    strokeDashoffset={isFullSlice ? undefined : -slice.offset}
+                    strokeLinecap="butt"
+                    strokeWidth={DONUT_STROKE_WIDTH}
+                    style={{
+                        transform: "rotate(-90deg)",
+                        transformOrigin: "center",
+                    }}
+                >
+                    <title>{`${slice.category}: ${formatPercent(slice.percentage)}`}</title>
+                </circle>
+            );
+        })}
+    </svg>
+);
+
+export const CategoriesChart = ({ data }: Props) => {
+    const categories = data.categoriesToday.filter(
+        (category) => categoryValue(category) > 0,
+    );
+    const slices = buildCategorySlices(categories);
     return (
         <Panel title="Categories today" titleJp="本日の分類" id="PANEL-104">
-            {categories.length === 0 ||
-            isAllZero(categories.map((category) => category.percentage)) ? (
+            {slices.length === 0 ? (
                 <EmptyChart />
             ) : (
                 <div className="grid min-h-[260px] items-center gap-4 md:grid-cols-[minmax(0,1fr)_1fr]">
-                    <ResponsiveContainer width="100%" height={220}>
-                        <PieChart>
-                            <Pie
-                                data={categories}
-                                dataKey="durationHours"
-                                nameKey="category"
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={58}
-                                outerRadius={92}
-                                paddingAngle={2}
-                                stroke="var(--bg-surface)"
-                                strokeWidth={3}
-                            >
-                                {categories.map((category, index) => (
-                                    <Cell
-                                        key={category.category}
-                                        fill={categoryColor(category.category, index)}
-                                    />
-                                ))}
-                            </Pie>
-                            <Tooltip content={<ChartTooltip />} />
-                        </PieChart>
-                    </ResponsiveContainer>
+                    <CategoriesDonut slices={slices} />
                     <DataTable
                         columns={columns}
                         rows={categories}

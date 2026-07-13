@@ -37,6 +37,10 @@ pub struct IngestRow {
     pub program_name: String,
     #[serde(rename = "subProgram", skip_serializing_if = "Option::is_none")]
     pub sub_program: Option<String>,
+    #[serde(rename = "tmuxSession", skip_serializing_if = "Option::is_none")]
+    pub tmux_session: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<String>,
     #[serde(rename = "browserTitle", skip_serializing_if = "Option::is_none")]
     pub browser_title: Option<String>,
     #[serde(rename = "keysPressedCount", skip_serializing_if = "Option::is_none")]
@@ -70,6 +74,8 @@ impl IngestRow {
                 .unwrap_or_else(|| "unknown".to_string()),
             program_name: log.current_program_name.clone().unwrap_or_else(|| "unknown".to_string()),
             sub_program: log.sub_program.clone(),
+            tmux_session: log.tmux_session.clone(),
+            bucket: log.bucket.clone(),
             browser_title: log.current_browser_title.clone(),
             keys_pressed_count: log.keys_pressed_count,
             mouse_movement_in_mm: log.mouse_movement_mm,

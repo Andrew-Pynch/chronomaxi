@@ -11,6 +11,7 @@
 import type * as actorOverride from "../actorOverride.js";
 import type * as dashboard from "../dashboard.js";
 import type * as deviceAliases from "../deviceAliases.js";
+import type * as dictation from "../dictation.js";
 import type * as http from "../http.js";
 import type * as lib_aggregation from "../lib/aggregation.js";
 import type * as lib_deviceAlias from "../lib/deviceAlias.js";
@@ -20,6 +21,7 @@ import type * as rebuild from "../rebuild.js";
 import type * as spans from "../spans.js";
 import type * as sshSessions from "../sshSessions.js";
 import type * as timer from "../timer.js";
+import type * as statusline from "../statusline.js";
 
 import type {
   ApiFromModules,
@@ -31,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   actorOverride: typeof actorOverride;
   dashboard: typeof dashboard;
   deviceAliases: typeof deviceAliases;
+  dictation: typeof dictation;
   http: typeof http;
   "lib/aggregation": typeof lib_aggregation;
   "lib/deviceAlias": typeof lib_deviceAlias;
@@ -40,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   spans: typeof spans;
   sshSessions: typeof sshSessions;
   timer: typeof timer;
+  statusline: typeof statusline;
 }>;
 
 /**

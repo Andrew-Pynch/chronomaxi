@@ -20,6 +20,8 @@ const ingestSpanValidator = v.object({
     // Terminal-pane sub-identity (e.g. "nvim", "cargo"); absent from
     // trackers that predate this field, and unset for non-terminal windows.
     subProgram: v.optional(v.string()),
+    tmuxSession: v.optional(v.string()),
+    bucket: v.optional(v.string()),
     browserTitle: v.optional(v.string()),
     keysPressedCount: v.optional(v.number()),
     mouseMovementInMM: v.optional(v.number()),
@@ -72,6 +74,8 @@ export const ingestSpanBatch = internalMutation({
                 programProcessName: item.programProcessName,
                 programName: item.programName,
                 subProgram: item.subProgram,
+                tmuxSession: item.tmuxSession,
+                bucket: item.bucket,
                 browserTitle: item.browserTitle,
                 keysPressedCount: item.keysPressedCount ?? 0,
                 mouseMovementInMM: item.mouseMovementInMM ?? 0,

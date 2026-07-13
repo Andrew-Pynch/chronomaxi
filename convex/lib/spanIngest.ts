@@ -23,6 +23,8 @@ export interface NormalizedSpanInsert {
     programProcessName: string;
     programName: string;
     subProgram?: string;
+    tmuxSession?: string;
+    bucket?: string;
     browserTitle?: string;
     keysPressedCount: number;
     mouseMovementInMM: number;

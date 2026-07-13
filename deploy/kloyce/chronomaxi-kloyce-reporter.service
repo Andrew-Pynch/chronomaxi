@@ -1,0 +1,14 @@
+[Unit]
+Description=Chronomaxi Kloyce dictated word reporter
+After=network-online.target kloyce.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=__HOME__/.local/bin/chronomaxi-kloyce-reporter
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

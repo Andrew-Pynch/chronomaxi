@@ -100,6 +100,15 @@ export interface SpanAggregateDeltas {
     programDetail?: ProgramDetailAggDelta;
 }
 
+export function typedWordsEstimate(keysPressedCount: number): number {
+    return Math.floor(Math.max(0, keysPressedCount) / 5);
+}
+
+export function typedWpm(keysPressedCount: number, activeMinutes: number): number | null {
+    if (keysPressedCount <= 0 || activeMinutes <= 0) return null;
+    return typedWordsEstimate(keysPressedCount) / activeMinutes;
+}
+
 // --- America/Chicago local-time conversion ------------------------------
 //
 // Convex's default runtime resembles a V8-isolate/Cloudflare-Workers-style

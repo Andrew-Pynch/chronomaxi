@@ -40,8 +40,7 @@ impl MacosCapture {
         let accessibility_granted = permissions::accessibility_trusted_with_prompt();
         if !accessibility_granted {
             println!(
-                "chronomaxi: Accessibility not granted yet -- window titles will read as unknown until \
-                 granted in System Settings > Privacy & Security > Accessibility."
+                "CHRONOMAXI WINDOW TITLES UNAVAILABLE: grant Accessibility in System Settings > Privacy & Security > Accessibility for the chronomaxi binary."
             );
         }
 
@@ -49,8 +48,7 @@ impl MacosCapture {
         let input_monitoring_granted = permissions::input_monitoring_preflight();
         if !input_monitoring_granted {
             println!(
-                "chronomaxi: Input Monitoring not granted yet -- key/click counts will read as zero until \
-                 granted in System Settings > Privacy & Security > Input Monitoring."
+                "CHRONOMAXI INPUT COUNTS UNAVAILABLE: grant Input Monitoring in System Settings > Privacy & Security > Input Monitoring for the chronomaxi binary."
             );
         }
 

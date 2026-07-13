@@ -225,7 +225,7 @@ fn log_denied_state(denied: &HashSet<PathBuf>) {
     let mut paths: Vec<String> = denied.iter().map(|p| p.display().to_string()).collect();
     paths.sort();
     println!(
-        "chronomaxi evdev: permission denied opening {} input device(s) ({}) -- apply the udev uaccess rule to fix; retrying every {}s",
+        "CHRONOMAXI INPUT COUNTS UNAVAILABLE: permission denied opening {} input device(s) ({}). Fix on Linux: sudo usermod -aG input $USER, then log out and back in, or install a udev TAG+=\"uaccess\" rule for /dev/input/event*. Retrying every {}s.",
         paths.len(),
         paths.join(", "),
         RESCAN_INTERVAL.as_secs() * DENIED_RETRY_EVERY_N_TICKS,
