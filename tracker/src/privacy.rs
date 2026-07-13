@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 
 const SCRUB_LABEL: &str = "homework";
 
+const CONFIG_COMMENT: &str =
+    "Extend allowlist_domains with browser domains whose titles are safe to log.";
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PrivacyConfig {
     #[serde(default)]
@@ -15,6 +18,10 @@ pub struct PrivacyConfig {
     pub search_markers: Vec<String>,
     #[serde(default)]
     pub private_window_markers: Vec<String>,
+    #[serde(default = "default_config_comment", rename = "_comment")]
+    pub comment: String,
+    #[serde(default)]
+    pub allowlist_domains: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -62,7 +69,11 @@ impl PrivacyScrubber {
             browser_title.unwrap_or(""),
             sub_program.unwrap_or(""),
         ];
-        let scrubbed = fields.iter().any(|value| self.should_scrub(value));
+        let browser_content = browser_title.is_some()
+            || is_known_browser(program_process_name)
+            || is_known_browser(program_name);
+        let scrubbed = fields.iter().any(|value| self.should_force_scrub(value))
+            || (browser_content && !fields.iter().any(|value| self.is_allowlisted(value)));
         if !scrubbed {
             return ScrubDecision {
                 scrubbed: false,
@@ -87,7 +98,7 @@ impl PrivacyScrubber {
         }
     }
 
-    fn should_scrub(&self, value: &str) -> bool {
+    fn should_force_scrub(&self, value: &str) -> bool {
         let lower = value.to_lowercase();
         if lower.trim().is_empty() {
             return false;
@@ -114,6 +125,17 @@ impl PrivacyScrubber {
             || lower.contains(" - google search")
             || lower.contains(" - duckduckgo");
         looks_like_search && uncertain_or_personal_query(&lower)
+    }
+
+    fn is_allowlisted(&self, value: &str) -> bool {
+        let lower = value.to_lowercase();
+        if lower.trim().is_empty() {
+            return false;
+        }
+        self.config
+            .allowlist_domains
+            .iter()
+            .any(|domain| contains_pattern(&lower, domain))
     }
 
     fn audit(
@@ -175,7 +197,15 @@ fn load_or_seed(path: &Path) -> Result<PrivacyConfig, Box<dyn std::error::Error>
         seed_file(path)?;
     }
     let text = fs::read_to_string(path)?;
-    let config: PrivacyConfig = serde_json::from_str(&text)?;
+    let mut config: PrivacyConfig = serde_json::from_str(&text)?;
+    // Old configs predate browser fail-closed allowlisting. Treat an empty
+    // allowlist as "not configured yet" so loading one does not scrub all browsing.
+    if config.allowlist_domains.is_empty() {
+        config.allowlist_domains = default_allowlist_domains();
+    }
+    if config.comment.is_empty() {
+        config.comment = default_config_comment();
+    }
     Ok(config)
 }
 
@@ -191,6 +221,25 @@ fn seed_file(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 fn contains_pattern(value: &str, pattern: &str) -> bool {
     let pattern = pattern.trim().to_lowercase();
     !pattern.is_empty() && value.contains(&pattern)
+}
+
+fn is_known_browser(program: &str) -> bool {
+    let program = program.to_lowercase();
+    const BROWSERS: [&str; 8] = [
+        "brave",
+        "chrome",
+        "chromium",
+        "firefox",
+        "safari",
+        "edge",
+        "librewolf",
+        "zen",
+    ];
+    BROWSERS.iter().any(|browser| program.contains(browser))
+}
+
+fn default_config_comment() -> String {
+    CONFIG_COMMENT.to_string()
 }
 
 fn uncertain_or_personal_query(value: &str) -> bool {
@@ -263,7 +312,74 @@ fn default_config() -> PrivacyConfig {
             "incognito".to_string(),
             "inprivate".to_string(),
         ],
+        comment: default_config_comment(),
+        allowlist_domains: default_allowlist_domains(),
     }
+}
+
+fn default_allowlist_domains() -> Vec<String> {
+    [
+        "github",
+        "github.com",
+        "gitlab",
+        "gitlab.com",
+        "localhost",
+        "127.0.0.1",
+        "vercel",
+        "vercel.com",
+        "linear",
+        "linear.app",
+        "slack",
+        "slack.com",
+        "pynch-labs.slack.com",
+        "notion",
+        "notion.so",
+        "google docs",
+        "docs.google.com",
+        "google drive",
+        "drive.google.com",
+        "google calendar",
+        "calendar.google.com",
+        "google meet",
+        "meet.google.com",
+        "stackoverflow",
+        "stack overflow",
+        "stackoverflow.com",
+        "rust-lang",
+        "rust-lang.org",
+        "docs.rs",
+        "crates.io",
+        "npm",
+        "npmjs.com",
+        "anthropic",
+        "anthropic.com",
+        "openai",
+        "openai.com",
+        "x.ai",
+        "claude",
+        "claude.ai",
+        "chatgpt",
+        "chatgpt.com",
+        "tailscale",
+        "tailscale.com",
+        "cloudflare",
+        "cloudflare.com",
+        "convex",
+        "convex.dev",
+        "youtube",
+        "youtube.com",
+        "wikipedia",
+        "wikipedia.org",
+        "hacker news",
+        "news.ycombinator.com",
+        "arxiv",
+        "arxiv.org",
+        "big-bertha.tail3f4961.ts.net",
+        "my.omp.sh",
+    ]
+    .into_iter()
+    .map(ToString::to_string)
+    .collect()
 }
 
 #[cfg(test)]
@@ -297,10 +413,134 @@ mod tests {
     }
 
     #[test]
-    fn clean_title_passes() {
-        let decision = scrubber().scrub_fields("Alacritty", "Alacritty", "nvim repo", Some("nvim repo"), Some("nvim"), "coding");
+    fn allowlisted_github_browser_title_passes() {
+        let decision = scrubber().scrub_fields(
+            "Brave Browser",
+            "Brave",
+            "pull request 123 - github.com",
+            Some("pull request 123 - github.com"),
+            None,
+            "coding",
+        );
         assert!(!decision.scrubbed);
-        assert_eq!(decision.title, "nvim repo");
+        assert_eq!(decision.title, "pull request 123 - github.com");
+        assert_eq!(decision.browser_title.as_deref(), Some("pull request 123 - github.com"));
         assert_eq!(decision.bucket, "coding");
+    }
+
+    #[test]
+    fn unknown_adult_domain_in_browser_becomes_homework() {
+        let decision = scrubber().scrub_fields(
+            "Firefox",
+            "Firefox",
+            "Videos - redgifs.com",
+            None,
+            None,
+            "other",
+        );
+        assert!(decision.scrubbed);
+        assert_eq!(decision.title, "homework");
+        assert_eq!(decision.bucket, "homework");
+    }
+
+    #[test]
+    fn unknown_random_blog_in_browser_becomes_homework() {
+        let decision = scrubber().scrub_fields(
+            "chromium",
+            "Chromium",
+            "A harmless essay - randomblog.example",
+            Some("A harmless essay - randomblog.example"),
+            None,
+            "research",
+        );
+        assert!(decision.scrubbed);
+        assert_eq!(decision.title, "homework");
+        assert_eq!(decision.browser_title.as_deref(), Some("homework"));
+    }
+
+    #[test]
+    fn terminal_title_with_random_text_passes() {
+        let decision = scrubber().scrub_fields(
+            "Alacritty",
+            "Alacritty",
+            "random notes without a domain",
+            None,
+            Some("nvim"),
+            "coding",
+        );
+        assert!(!decision.scrubbed);
+        assert_eq!(decision.title, "random notes without a domain");
+        assert_eq!(decision.bucket, "coding");
+    }
+
+    #[test]
+    fn old_config_without_allowlist_gets_default_allowlist_and_stays_fail_closed() {
+        let path = std::env::temp_dir().join(format!(
+            "chronomaxi-old-privacy-{}-{}.json",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::write(
+            &path,
+            serde_json::json!({
+                "adult_domains": [],
+                "flagged_terms": [],
+                "search_markers": [],
+                "private_window_markers": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let config = load_or_seed(&path).unwrap();
+        let scrubber = PrivacyScrubber {
+            config,
+            audit_path: PathBuf::from("/tmp/chronomaxi-test-scrub-audit.log"),
+        };
+        let unknown = scrubber.scrub_fields(
+            "Chrome",
+            "Chrome",
+            "Unknown site - randomblog.example",
+            Some("Unknown site - randomblog.example"),
+            None,
+            "research",
+        );
+        let github = scrubber.scrub_fields(
+            "Chrome",
+            "Chrome",
+            "Repo - github.com",
+            Some("Repo - github.com"),
+            None,
+            "coding",
+        );
+
+        assert!(unknown.scrubbed);
+        assert_eq!(unknown.title, "homework");
+        assert!(!github.scrubbed);
+        assert_eq!(github.title, "Repo - github.com");
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn seed_file_writes_allowlist_and_user_comment() {
+        let path = std::env::temp_dir().join(format!(
+            "chronomaxi-seed-privacy-{}-{}.json",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+
+        seed_file(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let allowlist = json
+            .get("allowlist_domains")
+            .and_then(|value| value.as_array())
+            .unwrap();
+
+        assert!(allowlist.iter().any(|value| value == "github"));
+        assert_eq!(json.get("_comment").and_then(|value| value.as_str()), Some(CONFIG_COMMENT));
+
+        let _ = fs::remove_file(path);
     }
 }
