@@ -159,6 +159,9 @@ export const getDashboard = query({
         // `device`) -- enough for a stacked per-device chart alongside the
         // current selection's summary series.
         perDeviceDays: v.array(perDeviceDayValidator),
+        // Today's total dictated words (kloyce SSE reporter, dictationDayAgg),
+        // narrowed/summed per `device` exactly like every today series above.
+        dictatedWordsToday: v.number(),
     }),
     handler: async (ctx, args) => {
         const device = args.device;
@@ -312,6 +315,20 @@ export const getDashboard = query({
             }))
             .sort((left, right) => right.durationHours - left.durationHours);
 
+        // dictationDayAgg is keyed by_day_device like every other today
+        // series, so the same device narrow-or-sum applies. A day with no
+        // dictation simply has no row, leaving the total at 0.
+        const dictationRows = await ctx.db
+            .query("dictationDayAgg")
+            .withIndex("by_day_device", (q) => q.eq("dayKey", todayKey))
+            .collect();
+        const selectedDictationRows =
+            device === undefined ? dictationRows : dictationRows.filter((row) => row.deviceName === device);
+        const dictatedWordsToday = selectedDictationRows.reduce(
+            (sum, row) => sum + row.dictatedWords,
+            0,
+        );
+
         return {
             days,
             today,
@@ -322,6 +339,7 @@ export const getDashboard = query({
             timezone: TIMEZONE,
             devices,
             perDeviceDays,
+            dictatedWordsToday,
         };
     },
 });

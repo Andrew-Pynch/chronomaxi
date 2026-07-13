@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import { Panel } from "~/components/nerv";
 import type { DashboardData } from "~/lib/activity-types";
-import { isAllZero } from "~/lib/format";
+import { formatCount, isAllZero } from "~/lib/format";
 import { AXIS_TICK, GRID_STROKE } from "./chart-style";
 import { ChartTooltip } from "./ChartTooltip";
 import { EmptyChart } from "./EmptyChart";
@@ -19,6 +19,11 @@ import { EmptyChart } from "./EmptyChart";
 type Props = {
     data: DashboardData;
 };
+
+// Approximate typed words from raw keystroke counts (5 chars/word), matching
+// the statusline query's TYPED_WORD_SIZE so the two dictated-vs-typed readouts
+// agree.
+const TYPED_WORD_SIZE = 5;
 
 // Old spans never recorded a keystroke count (the input-count signal was
 // added later), so an all-zero keystrokes series doesn't necessarily mean
@@ -43,6 +48,13 @@ export const KeystrokesChart = ({ data }: Props) => {
         activeMinuteSeries.map((hour) => hour.activeMinutes),
     );
     const showFallback = keystrokesAllZero && !activeMinutesAllZero;
+
+    // Dictated-vs-typed readout: dictated words are an exact count from the
+    // dictation reporter, typed words an approximation off today's raw
+    // keystrokes. Rendered independently of the chart's fallback so a
+    // voice-only day (keystrokes all-zero) still surfaces its dictation.
+    const dictatedWords = data.dictatedWordsToday;
+    const typedWords = Math.round(data.today.keystrokes / TYPED_WORD_SIZE);
 
     return (
         <Panel
@@ -93,6 +105,20 @@ export const KeystrokesChart = ({ data }: Props) => {
                     </ResponsiveContainer>
                 </>
             )}
+            <p className="mt-2 flex flex-wrap items-baseline gap-x-2 font-body text-2xs uppercase tracking-nerv text-fg-muted">
+                <span>
+                    typed <span className="text-secondary">~{formatCount(typedWords)}</span> words
+                </span>
+                <span aria-hidden>//</span>
+                {dictatedWords > 0 ? (
+                    <span>
+                        dictated{" "}
+                        <span className="text-tertiary">{formatCount(dictatedWords)}</span> words
+                    </span>
+                ) : (
+                    <span>no dictation yet</span>
+                )}
+            </p>
         </Panel>
     );
 };

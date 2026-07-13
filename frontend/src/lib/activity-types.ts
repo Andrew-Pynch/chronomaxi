@@ -74,4 +74,7 @@ export type DashboardData = {
     /** Full per-device breakdown across the same 7-day window as `days`,
      * regardless of the active `device` filter -- feeds DevicesChart. */
     perDeviceDays: PerDeviceDay[];
+    /** Today's total dictated words (dictationDayAgg), narrowed/summed by the
+     * active `device` filter like every other today series. 0 when none. */
+    dictatedWordsToday: number;
 };
